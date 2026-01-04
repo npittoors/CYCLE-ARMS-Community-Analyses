@@ -4,8 +4,8 @@ import os
 import numpy as np
 
 # Define file paths
-input_file = "/Users/nicolepittoors/Documents/Bioinformatics/arms/CYCLE_ARMS_2mm_counts.csv"
-output_dir = "/Users/nicolepittoors/Documents/Bioinformatics/arms"
+input_file = "Path/to/CYCLE_ARMS_2mm_counts.csv"
+output_dir = "Your/output/path"
 
 # Load the CSV data
 print(f"Loading data from {input_file}...")
