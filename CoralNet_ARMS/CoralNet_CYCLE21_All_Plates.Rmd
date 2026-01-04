@@ -1635,7 +1635,7 @@ summary_results_cn <- summary_results_cn[order(summary_results_cn$R2, decreasing
 #========================= SAVE RESULTS =========================
 
 # Create output directory
-output_dir_cn <- "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/CoralNet/CoralNet_PERMANOVA_output"
+output_dir_cn <- ""
 if (!dir.exists(output_dir_cn)) {
   dir.create(output_dir_cn, recursive = TRUE)
 }
