@@ -7,10 +7,10 @@ output: html_document
 Set working directory, create output directory
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/Motile_2mm")
+knitr::opts_knit$set(root.dir = "Path/to/folder")
 
 # Also set working directory for interactive use
-setwd("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/Motile_2mm")
+setwd("ath/to/folder")
 
 # Set output directory
 output_dir <- "./Output_2mm"
@@ -204,7 +204,7 @@ unique_families_metazoa_only_2mm <- unique_families_clean_2mm[
   !unique_families_clean_2mm$family %in% taxonomic_errors, ]
 
 write.csv(unique_families_metazoa_only_2mm, 
-          file = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/Motile_2mm/Output_2mm/unique_families_2mm_clean.csv", 
+          file = "./unique_families_2mm_clean.csv", 
           row.names = FALSE)
 ```
 
