@@ -1,5 +1,5 @@
 # Configurable Taxonomy Pipeline
-# Author: Nicole Pittoors (with the assistance claude AI)
+# Author: Nicole Pittoors (with the assistance of Claude AI)
 # Date Last Modified: April 25, 2025
 A flexible pipeline for taxonomic assignment of amplicon sequence variants (ASVs) from marine metabarcoding studies, with support for COI and 18S markers.
 
