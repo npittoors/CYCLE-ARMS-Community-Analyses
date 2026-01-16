@@ -8,11 +8,11 @@ output: html_document
 set working directory, do this in console
 ```{r}
 
-    knitr::opts_knit$set(root.dir = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline")
+    knitr::opts_knit$set(root.dir = "Path/to/file")
 ```
 
 ```{r setup, include=FALSE}
-knitr::opts_knit$set(root.dir = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline")
+knitr::opts_knit$set(root.dir = "Path/to/file")
 ```
 
 Load required libraries
@@ -54,7 +54,7 @@ library(openxlsx)
 Load ASV table that only contains marine benthic metazoans
 ```{r}
 # Load .csv file
-metazoan_ASVtab_18S = read.csv("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/18S_metazoo_ASVtab.csv",row.names=1, sep=",")
+metazoan_ASVtab_18S = read.csv("/Path/to/csvfile",row.names=1, sep=",")
 
 # Conver to matrix
 metazoan_ASVtab_18S=as.matrix(metazoan_ASVtab_18S)
@@ -76,7 +76,7 @@ class(metazoan_ASVtab_18S[1:3, 1:3])
 
 Import Metadata
 ```{r}
-metadata_ARMS <- read.csv("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/metadata_ARMS_env.csv", row.names=1, sep=",")
+metadata_ARMS <- read.csv("/Path/to/csvfile", row.names=1, sep=",")
 #It changed the names of fraction columns during import, change column names
 #names(ARMS_18S_metadata_R_2024_04) [names(ARMS_18S_metadata_R_2024_04) == 'fraction...4'] <- 'fraction'
 #Check that it worked
@@ -124,10 +124,10 @@ metazoan_ASVtab_18S <- metazoan_ASVtab_18S[, rownames(metadata_ARMS)]
 all(colnames(metazoan_ASVtab_18S) == rownames(metadata_ARMS))  # should return TRUE
 
 # Save metadata R object
-save(metadata_ARMS, file = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/metadata_ARMS.Rdata")
+save(metadata_ARMS, file = "/Path/to/Rdatafile")
 
 # Save 18S metazaon table of ARMS only samples, with SH IDs for column names and in the order of metadata which is site then sample ordered
-save(metazoan_ASVtab_18S, file = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/metazoan_ASVtab_18S.Rdata")
+save(metazoan_ASVtab_18S, file = "/Path/to/Rdatafile")
 ```
 
 
@@ -299,7 +299,7 @@ print(rawBar)
 
 # save the plot if you like it, adjust path as needed
 ggsave("18S_RawReads_Sample_Site.pdf", plot = last_plot(), device = "pdf", 
-       path = "./Final_18S_Output",
+       path = "./Final_18S_",
        scale = 1, width = 11, height = 8.5, units = "in", dpi = 300)
 
 
@@ -329,7 +329,7 @@ print(readplot)
 
 # Save
 ggsave("18S_Reads_ASVs_Samples.pdf", plot = readplot, 
-       path = "./Final_18S_Output", width = 12, height = 8, units = "in", dpi = 300)
+       path = "./Final_18S_", width = 12, height = 8, units = "in", dpi = 300)
 ```
 
 #------------RAREFACTION CURVES---------------------
@@ -448,10 +448,10 @@ print(fraction_plot)
 
 # Save plots
 ggsave("18S_rarefaction_by_site.pdf", plot = site_plot, device = "pdf", 
-       path = "./Final_18S_Output", width = 12, height = 8, units = "in", dpi = 300)
+       path = "./Final_18S_", width = 12, height = 8, units = "in", dpi = 300)
 
 ggsave("18S_rarefaction_by_fraction.pdf", plot = fraction_plot, device = "pdf", 
-       path = "./Final_18S_Output", width = 10, height = 8, units = "in", dpi = 300)
+       path = "./Final_18S_", width = 10, height = 8, units = "in", dpi = 300)
 ```
 
 # Check reads stats for rarefaction
@@ -585,7 +585,7 @@ cat("d_r17k samples match meta_dr17k:", identical(sample_names(d_r17k), rownames
 cat("d_r17k samples match ASV table:", identical(sample_names(d_r17k), rownames(asv_table_rarefied_18S)), "\n")
 cat("d_r17k samples match diversity indices:", identical(sample_names(d_r17k), rownames(div_indices_rarefied)), "\n")
 
-# Save outputs
+# Save s
 write.csv(div_indices_rarefied, 
           "./Alpha_Div/18S_diversity_indices_rarefied.csv", 
           quote = FALSE, row.names = TRUE)
@@ -2152,7 +2152,7 @@ print(oP_temp_PA)
 
 # Save
 ggsave("18S_NMDS_Jacc_TEMP.pdf", plot = oP_temp_PA, device = "pdf", 
-       path = "./J25output",
+       path = "./J25",
       scale = 1, width = 8.5, height = 10, units = "in", dpi = 300)
 ```
 
@@ -2885,18 +2885,18 @@ permdisp_summary <- compile_permdisp_summary()
 
 # ============== SAVE RESULTS =================
 
-# Create output directory
-output_dir <- "./PERMANOVA_18S"
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-  cat("✓ Created output directory:", output_dir, "\n")
+# Create  directory
+_dir <- "./PERMANOVA_18S"
+if (!dir.exists(_dir)) {
+  dir.create(_dir, recursive = TRUE)
+  cat("✓ Created  directory:", _dir, "\n")
 }
 
 # Save your existing results
-write.csv(results_summary, file.path(output_dir, "PERMANOVA_results.csv"), row.names = FALSE)
+write.csv(results_summary, file.path(_dir, "PERMANOVA_results.csv"), row.names = FALSE)
 
 if (nrow(permdisp_summary) > 0) {
-  write.csv(permdisp_summary, file.path(output_dir, "PERMDISP_assumption_testing.csv"), row.names = FALSE)
+  write.csv(permdisp_summary, file.path(_dir, "PERMDISP_assumption_testing.csv"), row.names = FALSE)
 }
 
 # Save detailed statistics
@@ -3706,7 +3706,7 @@ ggsave("18S_PCoA_BrayCurtis_4thRoot_13plots_Combined.pdf",
 #------NEW FINAL PCoA PLOTS -------
 
 ```{r plot PCoA All Samples}
-setwd("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/PCoA_18S")
+setwd("path/to/folder")
 # ---------------------- CREATE PCoA PLOTS (3-PANEL APPROACH) -----------------
 # Compute distance matrix and PCoA for plotting
 distance_matrix_plot <- vegdist(biotic_percs_18S_4th, method = "bray")
@@ -5229,7 +5229,7 @@ REQUIREMENTS:
 
 # Load geographic distance matricies
 ```{r}
-distance_dir <- "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/seascape_inputs"
+distance_dir <- "path/to/folder"
 
 # Geographic distances  
 geo_dist_all_df <- read.csv(paste0(distance_dir, "/leastDist_km_ind.csv"), sep = ",", row.names = 1)
@@ -5249,7 +5249,7 @@ geo_dist_sess_dist <- as.dist(geo_dist_sess_df)
 
 # Load Env distance objects
 ```{r}
-load("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/env_dist_input.Rdata")
+load("/Path/to/RdataFile")
 ```
 
 
@@ -5755,7 +5755,7 @@ print(paste("Model R² values:", paste(round(r2_data$R_squared, 3), collapse = "
 ```{r}
 #================= ENVIRONMENTAL VARIABLES SETUP FOR 18S ===============
 # Create directory for outputs if it doesn't exist
-dir.create("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp", 
+dir.create("/Path/to/output", 
            showWarnings = FALSE, recursive = TRUE)
 
 # Convert phyloseq sample_data to a regular dataframe
@@ -5870,10 +5870,10 @@ env_dist_objects_18S <- list(
 
 # Save the combined object
 save(env_dist_objects_18S, 
-     file = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/env_dist_18S.RData")
+     file = "/Path/to/RdataFile")
 
 cat("\n✓ Environmental distance matrices for all fractions saved to:\n")
-cat("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/env_dist_18S.RData\n")
+cat("/Path/to/RdataFile")
 
 # Print summary of created objects
 cat("\n=== SUMMARY OF CREATED ENVIRONMENTAL DISTANCE MATRICES ===\n")
@@ -5888,7 +5888,7 @@ cat("Motile organisms (100+500):", length(env_dist_motile_18S$env_samples), "sam
 # Load Necessary Data and Geographic Distances
 ```{r load data and distances}
 # Define path for geographic distance matrices
-distance_dir <- "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/seascape_inputs"
+distance_dir <- "path/to/inputs"
 
 # Load geographic distance matrices
 geo_dist_all_df <- read.csv(paste0(distance_dir, "/leastDist_km_ind.csv"), sep = ",", row.names = 1)
@@ -5906,7 +5906,7 @@ geo_dist_mot_dist <- as.dist(geo_dist_mot_df)
 geo_dist_sess_dist <- as.dist(geo_dist_sess_df)
 
 # Load the new environmental distance matrices
-load("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/env_dist_18S.RData")
+load("/Path/to/RdataFile")
 
 # Extract environmental distance matrices
 env_dist_all_18S <- env_dist_objects_18S$all$env_dist
@@ -6268,15 +6268,15 @@ mrm_results_18S <- extract_mrm_results(
 
 # Export to CSV
 write.csv(mantel_results_18S, 
-          "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/18S_Mantel_Results_nopp.csv", 
+          "/Path/to/csvfile", 
           row.names = FALSE)
 
 write.csv(partial_mantel_results_18S, 
-          "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/18S_Partial_Mantel_Results_nopp.csv", 
+          "/Path/to/csvfile", 
           row.names = FALSE)
 
 write.csv(mrm_results_18S, 
-          "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/18S_MRM_Results_nopp.csv", 
+          "/Path/to/csvfile", 
           row.names = FALSE)
 ```
 
@@ -6427,15 +6427,15 @@ mrm_results_18S <- extract_mrm_results(
 
 # Export to CSV
 write.csv(mantel_results_18S, 
-          "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/18S_Mantel_Results_nopp.csv", 
+          "/Path/to/csvfile", 
           row.names = FALSE)
 
 write.csv(partial_mantel_results_18S, 
-          "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/18S_Partial_Mantel_Results_nopp.csv", 
+          "/Path/to/csvfile", 
           row.names = FALSE)
 
 write.csv(mrm_results_18S, 
-          "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/geoVenv_nopp/18S_MRM_Results_nopp.csv", 
+          "/Path/to/csvfile", 
           row.names = FALSE)
 ```
 
