@@ -1,0 +1,3607 @@
+---
+title: "FINAL_18S_Taxonomy"
+author: "Nicole Pittoors"
+date: "2025-09-05"
+output: html_document
+---
+Load Libraries
+
+```{r, load libraries}
+library(tidyverse)
+library(phyloseq)
+library(ggplot2)
+library(dplyr)
+library(vegan)
+```
+
+# Set working directory
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "Set/Path")
+
+# Also set working directory for interactive use
+setwd("Set/Path")
+
+# Set output directory
+output_dir <- "./Taxa_Output_18S"
+
+# Create the directory if it doesn't exist
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Verify it was created
+cat("Output directory set to:", output_dir, "\n")
+cat("Full path:", normalizePath(output_dir), "\n")
+
+```
+
+
+# Import data
+```{r import data}
+# Load ASV proportions table, 4th root transformed, no ASVS with zero reads across all samples, ordered west to east and then by sample type, rows are SHIDs, matched metadata
+load("./biotic_percs_18S_4th.Rdata")
+# ASV raw count table, no ASVs with zero reads across all samples
+load("./biotic_clean_18S.Rdata")
+# Metadata
+load("./metadata_18S.Rdata")
+# Metazoan taxonomy table
+metazoo_tax_tab0 <- read.delim("./taxa_metazoan_18S.tsv", row.names=1) 
+dim(metazoo_tax_tab0) # 7089 x 163
+
+# Remove any ASVs in taxa table that don't match rownames of biotic_percs_18th_4th
+metazoo_tax_tab <- metazoo_tax_tab0[match(rownames(biotic_percs_18S_4th), rownames(metazoo_tax_tab0)), ]
+dim(metazoo_tax_tab) #6332 x 24
+# Extract only the taxonomic hierarchy columns from taxa table
+taxonomic_columns <- c("phylum", "class", "order", "family", "genus", "species")
+metazoo_tax_tab <- as.matrix(metazoo_tax_tab[, taxonomic_columns])
+
+```
+
+# Create Taxonomy Phyloseq object
+```{r create taxonomy phyloseq object}
+# Create phyloseq object with this basic sample data
+physeq <- phyloseq(
+  otu_table(biotic_percs_18S_4th, taxa_are_rows = TRUE),
+  sample_data(metadata_18S),
+  tax_table(metazoo_tax_tab)
+)
+
+# Check if that worked
+str(physeq)
+
+# Save
+```
+
+# Calculate ASV abundances
+Calculate the maximum abundance of each ASV across all samples and then see how many ASVs have a maximum abundance greater than 10% in any sample
+Ideal when looking at lower level taxa than just Phyla
+```{r ASV abundances}
+# Calculate ASV abundances
+#ASV_Abundance <- rowSums(biotic_clean_18S)
+
+# Calculate relative abundances by sample (column)
+# Convert counts to percentages within each sample
+#sample_totals <- colSums(otu_matrix)
+#metazo_tpercs <- t(apply(otu_matrix, 1, function(x) x*100/sample_totals))
+
+# Step 3: Find the maximum percentage for each ASV across all samples
+#asv_max_percent <- apply(metazo_tpercs, 1, max)
+
+# Step 4: Count how many ASVs have a maximum abundance > 10%
+#sum(asv_max_percent > 10) # 49
+
+# You can also see which ASVs these are
+#dominant_asvs <- names(asv_max_percent[asv_max_percent > 10])
+#head(dominant_asvs) 
+
+# And get their taxonomic information
+#tax_info_dominant <- tax_table(physeq)[dominant_asvs, ]
+#head(tax_info_dominant)
+
+#-------- Above code but working with already imported data sets
+#Convert proportions to percentages 
+biotic_percs_18S_4th <- biotic_percs_18S_4th *100
+
+# Find max percentages per ASV across samples
+asv_max_percent <- apply(biotic_percs_18S_4th, 1, max)
+
+# Count how many ASVs have a maximum abundance > 10%
+sum(asv_max_percent > 10)
+
+# You can also see which ASVs these are
+dominant_asvs <- names(asv_max_percent[asv_max_percent > 10])
+head(dominant_asvs) 
+
+# And get their taxonomic information
+tax_info_dominant <- tax_table(physeq)[dominant_asvs, ]
+head(tax_info_dominant)
+```
+==========================================================
+--------------RELATIVE ABUNDANCE PLOTS-------------------
+==========================================================
+
+# Custom sample order based on turbidity values
+```{r custom sample order}
+custom_order_turb <- c(
+   # MCG
+  "16_MCG_100", "17_MCG_100", "18_MCG_100",
+  "16_MCG_500", "17_MCG_500", "18_MCG_500",
+  "16_MCG_SESSILE", "17b_MCG_SESSILE", "18_MCG_SESSILE",
+  
+  # EFGshal
+  "31_EFGshal_100", "32_EFGshal_100", "33_EFGshal_100",
+  "31_EFGshal_500", "32_EFGshal_500", "33_EFGshal_500",
+  "31_EFGshal_SESSILE", "32_EFGshal_SESSILE", "33_EFGshal_SESSILE",
+ 
+   # ALDshal
+  "13_ALDshal_100", "14_ALDshal_100", "15_ALDshal_100",
+  "13_ALDshal_500", "14_ALDshal_500", "15_ALDshal_500",
+  "13_ALDshal_SESSILE", "14_ALDshal_SESSILE", "15_ALDshal_SESSILE",
+ 
+   # BRIshal
+  "25_BRIshal_100", "26_BRIshal_100", "26c_BRIshal_100", "27_BRIshal_100",
+  "25_BRIshal_500", "26_BRIshal_500", "26b_BRIshal_500", "27_BRIshal_500",
+  "25_BRIshal_SESSILE", "26_BRIshal_SESSILE", "27_BRIshal_SESSILE",
+  
+  # DIAback
+  "01_DIAback_100", "02_DIAback_100", "03_DIAback_100",
+  "01_DIAback_500", "02_DIAback_500", "03_DIAback_500",
+  "01_DIAback_SESSILE", "02_DIAback_SESSILE", "03_DIAback_SESSILE",
+  
+   # EFGdeep
+  "34_EFGdeep_100", "35_EFGdeep_100", "36_EFGdeep_100",
+  "34_EFGdeep_500", "35_EFGdeep_500", "36_EFGdeep_500",
+  "34_EFGdeep_SESSILE", "35_EFGdeep_SESSILE", "36_EFGdeep_SESSILE",
+  
+  # DIAcoral
+  "04_DIAcoral_100", "05_DIAcoral_100", "06_DIAcoral_100",
+  "04_DIAcoral_500", "05_DIAcoral_500", "06_DIAcoral_500",
+  "04_DIAcoral_SESSILE", "05_DIAcoral_SESSILE", "06_DIAcoral_SESSILE",
+  
+  # BRIback
+  "22_BRIback_100", "23_BRIback_100", "24_BRIback_100",
+  "22_BRIback_500", "23_BRIback_500", "24_BRIback_500",
+  "22_BRIback_SESSILE", "23_BRIback_SESSILE", "24_BRIback_SESSILE",
+  
+  # BRIcoral
+  "19_BRIcoral_100", "20_BRIcoral_100", "20b_BRIcoral_100", "21_BRIcoral_100",
+  "19_BRIcoral_500", "20_BRIcoral_500", "21_BRIcoral_500",
+  "19_BRIcoral_SESSILE", "20_BRIcoral_SESSILE", "21_BRIcoral_SESSILE",
+  
+   # ALDcoral
+  "07_ALDcoral_100", "08_ALDcoral_100", "09_ALDcoral_100",
+  "07_ALDcoral_500", "08_ALDcoral_500", "09_ALDcoral_500",
+  "07_ALDcoral_SESSILE", "08_ALDcoral_SESSILE", "09_ALDcoral_SESSILE",
+  
+  # STE
+  "28_STE_100", "29_STE_100", "29b_STE_100", "30_STE_100", "30b_STE_100",
+  "28_STE_500", "29_STE_500", "30_STE_500", "30b_STE_500",
+  "28b_STE_SESSILE", "29b_STE_SESSILE", "30_STE_SESSILE",
+  
+  # ALDback
+  "10_ALDback_100", "11_ALDback_100", "12_ALDback_100",
+  "10_ALDback_500", "11_ALDback_500", "12_ALDback_500",
+  "10_ALDback_SESSILE", "11_ALDback_SESSILE", "12_ALDback_SESSILE"
+)
+```
+
+
+# Create color palette that matches pre-taxa figure
+```{r color palette}
+c20 <- c("#60714E","#015951","#3B8C6E","#B0DBBB","#5BBFB0","#9DC9D3","#408BA8","#0D3D59","#594A9E","#A8B1D6","#812A5A","#F69B9C","#F16363","#C74238","#FEE14A","#FEBC2C","#F68C30","#F05522","#FDCA9D","grey40")
+
+
+# Create Phyla mapped palette USE THIS ONE
+phylum_color_map <- c("Annelida" = "#60714E",
+                      "Chaetognatha" = "#015951",
+                      "Arthropoda" = "#3B8C6E",
+                      "Sipuncula" = "#B0DBBB",
+                      "Bryozoa" = "#5BBFB0",
+                      "Brachiopoda" = "#9DC9D3",
+                      "Chordata" = "#408BA8",
+                      "Rotifera" = "#0D3D59",
+                      "Cnidaria" = "#594A9E",
+                      "Echinodermata" = "#A8B1D6",
+                      "Entoprocta" = "#812A5A",
+                      "Mollusca" = "#F69B9C",
+                      "Rhodophyta" = "#F16363",
+                      "Nematoda" = "#C74238",
+                      "Nemertea" = "#FEE14A",
+                      "Platyhelminthes" = "#FEBC2C",
+                      "Phoronida" = "#C47B51",
+                      "Porifera" = "#F68C30",
+                      "Ctenophora" = "#F05522",
+                      "Gastrotricha" = "#FDCA9D",
+                      "Acanthocephala" = "#104820",
+                      "Xenacoelomorpha" = "#C47B51",
+                      "Unknown" = "grey40")
+```
+
+# Create outut directory
+```{r output directory}
+dir.create("./Taxa_Output_18S", showWarnings = FALSE)
+
+```
+
+
+# Relative Abundance Plot by SAMPLE
+```{r rel. abund. plot by SAMPLE}
+# Start with the phyloseq object
+otu_matrix <- as(otu_table(physeq), "matrix")
+tax_matrix <- as(tax_table(physeq), "matrix")
+sample_data_df <- as.data.frame(sample_data(physeq))
+
+# First, create a data frame with the sample metadata we need
+sample_metadata <- data.frame(
+  Sample = rownames(sample_data_df),
+  sample_id_r = as.character(sample_data_df$sample_id_r),  # Convert to character to avoid list issues
+  fraction = gsub(".*_(\\d+|SESSILE)$", "\\1", as.character(sample_data_df$sample_id_r)),
+  sitelocality = as.character(sample_data_df$sitelocality),
+  stringsAsFactors = FALSE
+)
+
+# Calculate phylum-level abundances directly
+# First, group ASVs by phylum
+phylum_groups <- split(rownames(tax_matrix), tax_matrix[, "phylum"])
+
+# For each phylum, sum the abundances of its ASVs for each sample
+phylum_abundances <- lapply(names(phylum_groups), function(phylum) {
+  asvs <- phylum_groups[[phylum]]
+  if (length(asvs) == 1) {
+    # If only one ASV in phylum, just get its abundance
+    abundance <- otu_matrix[asvs, , drop = FALSE]
+  } else {
+    # Otherwise sum the abundances of all ASVs in the phylum
+    abundance <- colSums(otu_matrix[asvs, , drop = FALSE])
+  }
+  data.frame(
+    Sample = colnames(otu_matrix),
+    phylum = phylum,
+    Abundance = as.numeric(abundance),
+    stringsAsFactors = FALSE
+  )
+})
+
+# Combine all phylum abundances
+phylum_abundance_df <- do.call(rbind, phylum_abundances)
+
+# Merge with sample metadata
+phylum_abundance_df <- merge(phylum_abundance_df, sample_metadata, by = "Sample")
+
+# Calculate total abundance by phylum
+phylum_totals <- aggregate(Abundance ~ phylum, data = phylum_abundance_df, sum)
+phylum_totals <- phylum_totals[order(phylum_totals$Abundance, decreasing = TRUE), ]
+
+# Get top 20 phyla
+top_20_phyla <- phylum_totals$phylum[1:20]
+
+
+# Filter to only include top 20 phyla
+phylum_abundance_df_filtered <- phylum_abundance_df[phylum_abundance_df$phylum %in% top_20_phyla, ]
+
+# Calculate relative abundance
+library(dplyr)
+relative_data <- phylum_abundance_df_filtered %>%
+  group_by(Sample) %>%
+  mutate(Relative_Abundance = Abundance / sum(Abundance) * 100) %>%
+  ungroup()
+
+# Order samples by custom order
+relative_data$sample_id_r <- factor(relative_data$sample_id_r, levels = custom_order_turb)
+
+# Create variable to label each sample by sitelocality value
+# First create a named vector mapping sample_id_r to site
+site_labels <- setNames(metadata_ARMS$sitelocality, metadata_ARMS$sample_id_r)
+# Remove duplicates if any
+site_labels <- site_labels[!duplicated(names(site_labels))]
+
+# Create the plot
+p <- ggplot(relative_data, aes(x = sample_id_r, y = Relative_Abundance, fill = phylum)) +
+  geom_bar(stat = "identity", position = "stack", 
+           color = "black", size = 0.2, width = 0.8) +
+  facet_grid(~ fraction, scales = "free_x", space = "free_x") +
+  scale_fill_manual(values = phylum_color_map) +
+  scale_x_discrete(labels = site_labels) +  # This maps sample_id_r to site labels
+  labs(y = "Relative abundance (%)", x = "Site", title = "Relative Abundance of Top 20 Phyla") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 11, color = "black"),
+    axis.text.y = element_text(size = 20, color = "black"),
+    axis.title = element_text(size = 17, color = "black"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 17, face = "bold", margin = margin(t = 0, b = 5)),
+    legend.title = element_text(size = 17, face = "bold", color = "black"),
+    legend.text = element_text(size = 16, color = "black"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    panel.spacing = unit(1, "cm")
+  )
+
+# Save the plot
+ggsave("./18S_Top20_Phyla_RelativeAbundance_bySample.pdf", p, width = 18, height = 8)
+```
+
+# Relative Abundance Plot - Samples aggregated by SITELOCALITY
+This code includes some unclassified samples (maybe phylum is missing?)
+```{r Relative Abundance Plot - Samples aggregated by SITELOCALITY}
+# Plot top 20 phyla by sitelocality, ordered by turbidity
+
+# Aggregate the data by site locality and fraction
+site_aggregated <- relative_data %>%
+  group_by(sitelocality, fraction, phylum) %>%
+  summarise(Relative_Abundance = mean(Relative_Abundance, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create a sensible ordering for site localities
+siteloc_order_turb <- c("McGrail_deep","EFGB_shallow","Alderdice_shallow","Bright_shallow",
+                        "Diaphus_deep2", "EFGB_deep", "Diaphus_deep1","Bright_deep2",
+                        "Bright_deep1", "Alderdice_deep1", "Stetson_shallow","Alderdice_deep2")
+
+# Set factor order
+site_aggregated$sitelocality <- factor(site_aggregated$sitelocality, levels = siteloc_order_turb)
+
+# Create the site-level plot
+p_site <- ggplot(site_aggregated, aes(x = sitelocality, y = Relative_Abundance, fill = phylum)) +
+  geom_bar(stat = "identity", position = "stack",
+           color = "black", size = 0.4, width = 0.85) +
+  facet_grid(~ fraction, scales = "free_x", space = "free_x") +
+  scale_fill_manual(values = phylum_color_map) +
+  labs(y = "Relative abundance (%)", x = "Site Locality", title = "Relative Abundance of Top 20 Phyla by Site- 18S") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 12, color = "black"),
+    axis.text.y = element_text(size = 16, color = "black"),
+    axis.title = element_text(size = 17, color = "black"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 17, face = "bold", margin = margin(t = 0, b = 5)),
+    legend.title = element_text(size = 17, face = "bold", color = "black"),
+    legend.text = element_text(size = 16, color = "black"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.5, "cm")
+  )
+
+# Save the plot
+ggsave("./18S_Top20_Phyla_RelativeAbundance_BySite.pdf", p_site, width = 14, height = 10)
+```
+
+Plot top 20 phyla by sitelocality, ordered by turbidity
+```{r Plot top 20 phyla by sitelocality, ordered by turbidity}
+# Plot top 20 phyla by sitelocality, ordered by turbidity
+
+# Step 1: Check initial data
+cat("Initial phyla in data:", 
+    length(unique(phylum_abundance_df$phylum)), "\n")
+print(unique(phylum_abundance_df$phylum))
+
+# Step 2: Filter to only include top 20 phyla
+phylum_abundance_df_filtered <- phylum_abundance_df[phylum_abundance_df$phylum %in% top_20_phyla, ]
+cat("\nAfter filtering to top 20:", 
+    length(unique(phylum_abundance_df_filtered$phylum)), "\n")
+
+# Step 3: Remove unclassified
+phylum_abundance_df_filtered <- phylum_abundance_df_filtered %>%
+  filter(!is.na(phylum),
+         phylum != "",
+         phylum != "Unclassified",
+         phylum != "unclassified")
+
+cat("After removing unclassified:", 
+    length(unique(phylum_abundance_df_filtered$phylum)), "\n")
+print(sort(unique(phylum_abundance_df_filtered$phylum)))
+
+# Step 4: Calculate relative abundance
+relative_data <- phylum_abundance_df_filtered %>%
+  group_by(Sample) %>%
+  mutate(Relative_Abundance = Abundance / sum(Abundance) * 100) %>%
+  ungroup()
+
+# Continue with rest of code...
+```
+
+# See top 10 phyla in each fraction
+```{r top 10 phyla in each fraction}
+# Check phylum abundance by fraction
+phylum_by_fraction <- aggregate(Relative_Abundance ~ phylum + fraction, 
+                                data = relative_data, 
+                                FUN = mean)
+
+# View top phyla by fraction
+for(frac in unique(phylum_by_fraction$fraction)) {
+  cat("\nTop phyla in fraction", frac, ":\n")
+  print(phylum_by_fraction[phylum_by_fraction$fraction == frac, ] %>%
+          arrange(desc(Relative_Abundance)) %>%
+          head(10))
+}
+```
+
+===============================================================================
+----------- Relative Abundance Table including UNCLASSIFIED READS--------------
+===============================================================================
+Creating a new ASV count table and phyloseq object to plot relative abundances including unclassified reads
+
+# Load missing ASVs, original AVV count table, and original taxonomy table
+```{r rel abund plot with unclassified reads}
+# Load missing ASVs (those with no taxonomy hits)
+missing_asvs_raw <- read.delim("./missing_asvs.tsv", header = FALSE, stringsAsFactors = FALSE)
+cat("Missing ASVs file dimensions:", dim(missing_asvs_raw), "\n")
+cat("First few entries:\n")
+print(head(missing_asvs_raw))
+
+# Extract just the ASV IDs (should be in first column)
+missing_asv_ids <- missing_asvs_raw$V1
+cat("\nTotal missing ASVs:", length(missing_asv_ids), "\n")
+
+# Load original count table
+original_counts <- read.csv('/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/18S_lulu_ASVtab.csv', 
+                            row.names = 1)
+cat("\nOriginal count table dimensions:", dim(original_counts), "\n")
+cat("First few row names:", head(rownames(original_counts)), "\n")
+cat("First few column names:", head(colnames(original_counts)), "\n")
+
+# Load the COMPLETE taxonomy file (metazoan + non-metazoan)
+complete_taxonomy <- read.delim('./final_taxonomy_results.tsv',
+                                row.names = 1)
+
+cat("=== Complete Taxonomy File ===\n")
+cat("Dimensions:", dim(complete_taxonomy), "\n")
+cat("Column names:", colnames(complete_taxonomy), "\n\n")
+
+# Check kingdoms present
+if("kingdom" %in% colnames(complete_taxonomy)) {
+  cat("Kingdoms present:\n")
+  print(table(complete_taxonomy$kingdom))
+  cat("\n")
+}
+
+# Check phyla
+if("phylum" %in% colnames(complete_taxonomy)) {
+  cat("Top 20 phyla:\n")
+  print(head(sort(table(complete_taxonomy$phylum), decreasing = TRUE), 20))
+  cat("\n")
+}
+```
+
+# Check which missing ASVs are in filtered data
+```{r find missing ASVs}
+cat("=== ASV Accounting ===\n")
+cat("Original count table:", nrow(original_counts), "ASVs\n")
+cat("Complete taxonomy file:", nrow(complete_taxonomy), "ASVs\n")
+cat("Missing ASVs (no hits):", length(missing_asv_ids), "ASVs\n")
+
+# Calculate non-metazoan
+asvs_in_complete_tax <- rownames(complete_taxonomy)
+non_metazoan_count <- length(setdiff(asvs_in_complete_tax, rownames(metazoo_tax_tab)))
+
+cat("\nBreakdown:\n")
+cat("  Metazoan/Rhodophyta:", nrow(metazoo_tax_tab), "ASVs\n")
+cat("  Non-metazoan:", non_metazoan_count, "ASVs\n")
+cat("  No taxonomy hits:", length(missing_asv_ids), "ASVs\n")
+cat("  Total accounted:", nrow(metazoo_tax_tab) + non_metazoan_count + length(missing_asv_ids), "\n")
+
+# The key question: Which missing ASVs are in ARMS samples?
+cat("\n=== Missing ASVs in ARMS Samples ===\n")
+
+# Extract SH IDs from original column names
+sh_pattern <- "SH[0-9]+"
+original_sh_ids <- regmatches(colnames(original_counts), 
+                              regexpr(sh_pattern, colnames(original_counts)))
+
+# Find which columns match your ARMS samples
+arms_sample_ids <- colnames(biotic_clean_18S)
+arms_cols_in_original <- which(original_sh_ids %in% arms_sample_ids)
+
+cat("Columns in original matching ARMS samples:", length(arms_cols_in_original), "\n")
+
+# Subset to ARMS samples only
+original_arms_only <- original_counts[, arms_cols_in_original]
+cat("Original table subset to ARMS:", dim(original_arms_only), "\n")
+
+# Check missing ASVs in ARMS samples
+missing_in_arms <- intersect(missing_asv_ids, rownames(original_arms_only))
+cat("\nMissing ASVs present in original ARMS samples:", length(missing_in_arms), "\n")
+
+if(length(missing_in_arms) > 0) {
+  # Calculate their abundances
+  missing_arms_abundances <- rowSums(original_arms_only[missing_in_arms, ])
+  
+  cat("Abundance summary for missing ASVs in ARMS:\n")
+  print(summary(missing_arms_abundances))
+  
+  # How many have non-zero counts?
+  missing_with_counts <- sum(missing_arms_abundances > 0)
+  cat("\nMissing ASVs with >0 counts in ARMS:", missing_with_counts, "\n")
+  cat("Missing ASVs with 0 counts in ARMS:", sum(missing_arms_abundances == 0), "\n")
+  
+  # These are your "Unclassified" candidates!
+  if(missing_with_counts > 0) {
+    unclassified_asvs <- names(missing_arms_abundances[missing_arms_abundances > 0])
+    cat("\n✓ Found", length(unclassified_asvs), "unclassified ASVs with counts in ARMS samples!\n")
+    
+    # What percentage of total reads?
+    total_reads_all <- sum(original_arms_only)
+    unclassified_reads <- sum(missing_arms_abundances[missing_arms_abundances > 0])
+    cat("Unclassified reads:", unclassified_reads, 
+        "(", round(unclassified_reads/total_reads_all*100, 2), "% of total)\n")
+  }
+}
+```
+
+```{r debugging}
+cat("Debugging column name mismatch:\n\n")
+
+# Check what we have
+cat("Sample of original_arms_only column names:\n")
+print(head(colnames(original_arms_only)))
+
+cat("\nSample of biotic_clean_18S column names:\n")
+print(head(colnames(biotic_clean_18S)))
+
+cat("\nSample of original_sh_ids (extracted SH IDs):\n")
+print(head(original_sh_ids[arms_cols_in_original]))
+
+cat("\nSample of arms_sample_ids:\n")
+print(head(arms_sample_ids))
+
+# The issue is likely the matching - let's fix it
+# Extract SH IDs more carefully
+original_arms_sh <- original_sh_ids[arms_cols_in_original]
+
+cat("\nChecking if SH IDs are in the same order:\n")
+cat("First few from original:", head(original_arms_sh), "\n")
+cat("First few from biotic_clean:", head(arms_sample_ids), "\n")
+
+# Try direct assignment if they're in the same order
+if(length(original_arms_sh) == length(arms_sample_ids)) {
+  cat("\nSame length - checking if same samples in same order...\n")
+  cat("Proportion matching:", mean(original_arms_sh == arms_sample_ids), "\n")
+  
+  if(mean(original_arms_sh == arms_sample_ids) > 0.9) {
+    # They're in the same order, just assign directly
+    cat("✓ Samples are in same order, assigning directly\n")
+    colnames(original_arms_only) <- colnames(biotic_clean_18S)
+    colnames(unclassified_counts) <- colnames(biotic_clean_18S)
+  } else {
+    # They're not in the same order, need to reorder
+    cat("✗ Samples are NOT in same order, reordering...\n")
+    
+    # Create a mapping
+    mapping <- data.frame(
+      original_col = colnames(original_arms_only),
+      sh_id = original_arms_sh
+    )
+    
+    # Match to biotic_clean order
+    match_indices <- match(colnames(biotic_clean_18S), mapping$sh_id)
+    
+    if(any(is.na(match_indices))) {
+      cat("ERROR: Some samples in biotic_clean_18S not found in original_arms_only\n")
+      cat("Missing samples:", sum(is.na(match_indices)), "\n")
+    } else {
+      # Reorder columns
+      original_arms_only <- original_arms_only[, match_indices]
+      unclassified_counts <- unclassified_counts[, match_indices]
+      
+      # Now assign column names
+      colnames(original_arms_only) <- colnames(biotic_clean_18S)
+      colnames(unclassified_counts) <- colnames(biotic_clean_18S)
+      
+      cat("✓ Reordered and column names assigned\n")
+    }
+  }
+} else {
+  cat("ERROR: Different number of samples!\n")
+  cat("Original ARMS:", length(original_arms_sh), "\n")
+  cat("Biotic clean:", length(arms_sample_ids), "\n")
+}
+
+# Verify the fix
+cat("\nVerification:\n")
+cat("Column names now match?", identical(colnames(unclassified_counts), colnames(biotic_clean_18S)), "\n")
+
+if(identical(colnames(unclassified_counts), colnames(biotic_clean_18S))) {
+  cat("✓ SUCCESS - proceeding with combining count tables\n\n")
+  
+  # Now continue with the rest
+  cat("Step 2: Combine classified + unclassified counts\n")
+  biotic_clean_18S_w_unknown <- rbind(biotic_clean_18S, unclassified_counts)
+  cat("  Original biotic_clean_18S:", dim(biotic_clean_18S), "\n")
+  cat("  With unclassified added:", dim(biotic_clean_18S_w_unknown), "\n\n")
+  
+  # Step 3: Create taxonomy table for unclassified
+  cat("Step 3: Create taxonomy for unclassified ASVs\n")
+  unclassified_tax <- matrix(
+    "Unclassified",
+    nrow = length(unclassified_asvs),
+    ncol = 6,
+    dimnames = list(unclassified_asvs, c("phylum", "class", "order", "family", "genus", "species"))
+  )
+  
+  cat("  Unclassified taxonomy table:", dim(unclassified_tax), "\n\n")
+  
+  # Step 4: Combine taxonomy tables
+  cat("Step 4: Combine taxonomy tables\n")
+  metazoo_tax_tab_w_unknown <- rbind(metazoo_tax_tab, unclassified_tax)
+  cat("  Original metazoo_tax_tab:", dim(metazoo_tax_tab), "\n")
+  cat("  With unclassified added:", dim(metazoo_tax_tab_w_unknown), "\n\n")
+  
+  # Step 5: Verify alignment
+  cat("Step 5: Verify alignment\n")
+  cat("  Row names match?", identical(rownames(biotic_clean_18S_w_unknown), 
+                                      rownames(metazoo_tax_tab_w_unknown)), "\n")
+  
+  # If not, fix it
+  if(!identical(rownames(biotic_clean_18S_w_unknown), rownames(metazoo_tax_tab_w_unknown))) {
+    cat("  Reordering to match...\n")
+    metazoo_tax_tab_w_unknown <- metazoo_tax_tab_w_unknown[rownames(biotic_clean_18S_w_unknown), ]
+    cat("  After reordering, match?", identical(rownames(biotic_clean_18S_w_unknown), 
+                                                 rownames(metazoo_tax_tab_w_unknown)), "\n")
+  }
+  
+  
+  # Step 6: Create new phyloseq object
+  cat("Step 6: Create phyloseq object\n")
+  physeq18S_w_unknown <- phyloseq(
+    otu_table(biotic_clean_18S_w_unknown, taxa_are_rows = TRUE),
+    sample_data(metadata_18S),
+    tax_table(metazoo_tax_tab_w_unknown)
+  )
+  
+  print(physeq18S_w_unknown)
+  
+  # Step 7: Summary statistics
+  cat("\n=== Summary ===\n")
+  phylum_table <- table(tax_table(physeq18S_w_unknown)[, "phylum"])
+  cat("\nPhylum distribution (top 15):\n")
+  print(head(sort(phylum_table, decreasing = TRUE), 15))
+  
+  unclassified_count <- sum(tax_table(physeq18S_w_unknown)[, "phylum"] == "Unclassified")
+  total_asvs <- ntaxa(physeq18S_w_unknown)
+  
+  cat("\nASV counts:\n")
+  cat("  Classified (Metazoa/Rhodophyta):", nrow(metazoo_tax_tab), "\n")
+  cat("  Unclassified:", unclassified_count, "\n")
+  cat("  Total:", total_asvs, "\n")
+  cat("  Percentage unclassified:", round(unclassified_count/total_asvs*100, 2), "%\n")
+  
+  # Check read abundance
+  cat("\nRead abundance:\n")
+  total_reads <- sum(otu_table(physeq18S_w_unknown))
+  unclassified_reads_check <- sum(otu_table(physeq18S_w_unknown)[rownames(unclassified_tax), ])
+  cat("  Total reads:", total_reads, "\n")
+  cat("  Unclassified reads:", unclassified_reads_check, "\n")
+  cat("  Percentage unclassified reads:", round(unclassified_reads_check/total_reads*100, 2), "%\n")
+  
+} else {
+  cat("✗ FAILED - need to investigate further\n")
+}
+```
+
+# Create relative abundance plots
+```{r create plot w/ unclassified reads}
+# Use the same custom order and color palette
+custom_order_turb <- c(
+  # MCG
+  "16_MCG_100", "17_MCG_100", "18_MCG_100",
+  "16_MCG_500", "17_MCG_500", "18_MCG_500",
+  "16_MCG_SESSILE", "17b_MCG_SESSILE", "18_MCG_SESSILE",
+  
+  # EFGshal
+  "31_EFGshal_100", "32_EFGshal_100", "33_EFGshal_100",
+  "31_EFGshal_500", "32_EFGshal_500", "33_EFGshal_500",
+  "31_EFGshal_SESSILE", "32_EFGshal_SESSILE", "33_EFGshal_SESSILE",
+  
+  # ALDshal
+  "13_ALDshal_100", "14_ALDshal_100", "15_ALDshal_100",
+  "13_ALDshal_500", "14_ALDshal_500", "15_ALDshal_500",
+  "13_ALDshal_SESSILE", "14_ALDshal_SESSILE", "15_ALDshal_SESSILE",
+  
+  # BRIshal
+  "25_BRIshal_100", "26_BRIshal_100", "26c_BRIshal_100", "27_BRIshal_100",
+  "25_BRIshal_500", "26_BRIshal_500", "26b_BRIshal_500", "27_BRIshal_500",
+  "25_BRIshal_SESSILE", "26_BRIshal_SESSILE", "27_BRIshal_SESSILE",
+  
+  # DIAback
+  "01_DIAback_100", "02_DIAback_100", "03_DIAback_100",
+  "01_DIAback_500", "02_DIAback_500", "03_DIAback_500",
+  "01_DIAback_SESSILE", "02_DIAback_SESSILE", "03_DIAback_SESSILE",
+  
+  # EFGdeep
+  "34_EFGdeep_100", "35_EFGdeep_100", "36_EFGdeep_100",
+  "34_EFGdeep_500", "35_EFGdeep_500", "36_EFGdeep_500",
+  "34_EFGdeep_SESSILE", "35_EFGdeep_SESSILE", "36_EFGdeep_SESSILE",
+  
+  # DIAcoral
+  "04_DIAcoral_100", "05_DIAcoral_100", "06_DIAcoral_100",
+  "04_DIAcoral_500", "05_DIAcoral_500", "06_DIAcoral_500",
+  "04_DIAcoral_SESSILE", "05_DIAcoral_SESSILE", "06_DIAcoral_SESSILE",
+  
+  # BRIback
+  "22_BRIback_100", "23_BRIback_100", "24_BRIback_100",
+  "22_BRIback_500", "23_BRIback_500", "24_BRIback_500",
+  "22_BRIback_SESSILE", "23_BRIback_SESSILE", "24_BRIback_SESSILE",
+  
+  # BRIcoral
+  "19_BRIcoral_100", "20_BRIcoral_100", "20b_BRIcoral_100", "21_BRIcoral_100",
+  "19_BRIcoral_500", "20_BRIcoral_500", "21_BRIcoral_500",
+  "19_BRIcoral_SESSILE", "20_BRIcoral_SESSILE", "21_BRIcoral_SESSILE",
+  
+  # ALDcoral
+  "07_ALDcoral_100", "08_ALDcoral_100", "09_ALDcoral_100",
+  "07_ALDcoral_500", "08_ALDcoral_500", "09_ALDcoral_500",
+  "07_ALDcoral_SESSILE", "08_ALDcoral_SESSILE", "09_ALDcoral_SESSILE",
+  
+  # STE
+  "28_STE_100", "29_STE_100", "29b_STE_100", "30_STE_100", "30b_STE_100",
+  "28_STE_500", "29_STE_500", "30_STE_500", "30b_STE_500",
+  "28b_STE_SESSILE", "29b_STE_SESSILE", "30_STE_SESSILE",
+  
+  # ALDback
+  "10_ALDback_100", "11_ALDback_100", "12_ALDback_100",
+  "10_ALDback_500", "11_ALDback_500", "12_ALDback_500",
+  "10_ALDback_SESSILE", "11_ALDback_SESSILE", "12_ALDback_SESSILE"
+)
+
+# Color palette with Unclassified
+phylum_color_map_w_unknown <- c(
+  "Annelida" = "#60714E",
+  "Arthropoda" = "#3B8C6E",
+  "Sipuncula" = "#B0DBBB",
+  "Bryozoa" = "#5BBFB0",
+  "Brachiopoda" = "#9DC9D3",
+  "Chordata" = "#408BA8",
+  "Rotifera" = "#0D3D59",
+  "Cnidaria" = "#594A9E",
+  "Echinodermata" = "#A8B1D6",
+  "Entoprocta" = "#812A5A",
+  "Mollusca" = "#F69B9C",
+  "Rhodophyta" = "#F16363",
+  "Nematoda" = "#C74238",
+  "Nemertea" = "#FEE14A",
+  "Platyhelminthes" = "#FEBC2C",
+  "Porifera" = "#F68C30",
+  "Gastrotricha" = "#FDCA9D",
+  "Xenacoelomorpha" = "#C47B51",  
+  "Acanthocephala" = "#104820",   
+  "Unclassified" = "grey70"
+)
+
+# Calculate phylum-level abundances from physeq18S_w_unknown
+otu_matrix <- as(otu_table(physeq18S_w_unknown), "matrix")
+tax_matrix <- as(tax_table(physeq18S_w_unknown), "matrix")
+sample_data_df <- as.data.frame(sample_data(physeq18S_w_unknown))
+
+# Create sample metadata
+sample_metadata <- data.frame(
+  Sample = rownames(sample_data_df),
+  sample_id_r = as.character(sample_data_df$sample_id_r),
+  fraction = gsub(".*_(\\d+|SESSILE)$", "\\1", as.character(sample_data_df$sample_id_r)),
+  sitelocality = as.character(sample_data_df$sitelocality),
+  stringsAsFactors = FALSE
+)
+
+# Group ASVs by phylum
+phylum_groups <- split(rownames(tax_matrix), tax_matrix[, "phylum"])
+
+# Calculate phylum abundances
+phylum_abundances <- lapply(names(phylum_groups), function(phylum) {
+  asvs <- phylum_groups[[phylum]]
+  if (length(asvs) == 1) {
+    abundance <- otu_matrix[asvs, , drop = FALSE]
+  } else {
+    abundance <- colSums(otu_matrix[asvs, , drop = FALSE])
+  }
+  data.frame(
+    Sample = colnames(otu_matrix),
+    phylum = phylum,
+    Abundance = as.numeric(abundance),
+    stringsAsFactors = FALSE
+  )
+})
+
+phylum_abundance_df <- do.call(rbind, phylum_abundances)
+phylum_abundance_df <- merge(phylum_abundance_df, sample_metadata, by = "Sample")
+
+# Get top 20 phyla (which now includes Unclassified)
+phylum_totals <- aggregate(Abundance ~ phylum, data = phylum_abundance_df, sum)
+phylum_totals <- phylum_totals[order(phylum_totals$Abundance, decreasing = TRUE), ]
+top_20_phyla <- phylum_totals$phylum[1:20]
+
+cat("Top 20 phyla (including Unclassified):\n")
+print(phylum_totals[1:20, ])
+
+# Filter to top 20
+phylum_abundance_df_filtered <- phylum_abundance_df[phylum_abundance_df$phylum %in% top_20_phyla, ]
+
+# Calculate relative abundance
+library(dplyr)
+relative_data <- phylum_abundance_df_filtered %>%
+  group_by(Sample) %>%
+  mutate(Relative_Abundance = Abundance / sum(Abundance) * 100) %>%
+  ungroup()
+
+# Order samples
+relative_data$sample_id_r <- factor(relative_data$sample_id_r, levels = custom_order_turb)
+
+# Create site labels
+site_labels <- setNames(metadata_18S$sitelocality, metadata_18S$sample_id_r)
+site_labels <- site_labels[!duplicated(names(site_labels))]
+
+# Create the plot
+p_with_unknown <- ggplot(relative_data, aes(x = sample_id_r, y = Relative_Abundance, fill = phylum)) +
+  geom_bar(stat = "identity", position = "stack", 
+           color = "black", size = 0.2, width = 0.8) +
+  facet_grid(~ fraction, scales = "free_x", space = "free_x") +
+  scale_fill_manual(values = phylum_color_map_w_unknown) +
+  scale_x_discrete(labels = site_labels) +
+  labs(y = "Relative abundance (%)", x = "Site", 
+       title = "Relative Abundance of Top 20 Phyla (Including Unclassified) - 18S") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 11, color = "black"),
+    axis.text.y = element_text(size = 20, color = "black"),
+    axis.title = element_text(size = 17, color = "black"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 17, face = "bold", margin = margin(t = 0, b = 5)),
+    legend.title = element_text(size = 17, face = "bold", color = "black"),
+    legend.text = element_text(size = 16, color = "black"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    panel.spacing = unit(1, "cm")
+  )
+
+# Save the plot
+ggsave(file.path(output_dir, "18S_Top20_Phyla_RelativeAbundance_bySample_WITH_UNCLASSIFIED.pdf"), 
+       p_with_unknown, width = 18, height = 8)
+
+cat("\n✓ Plot saved to:", file.path(output_dir, "18S_Top20_Phyla_RelativeAbundance_bySample_WITH_UNCLASSIFIED.pdf"), "\n")
+
+# Display the plot
+print(p_with_unknown)
+```
+
+
+# Checkinging into 100um fraction plotting as unknown
+```{r}
+cat("=== Debugging: Which phyla are missing colors? ===\n\n")
+
+# Get all phyla actually in your top 20 plot data
+phyla_in_plot <- unique(relative_data$phylum)
+cat("Phyla in the plot data (top 20):\n")
+print(sort(phyla_in_plot))
+
+# Get phyla in your color palette
+phyla_in_palette <- names(phylum_color_map_w_unknown)
+cat("\n\nPhyla in color palette:\n")
+print(sort(phyla_in_palette))
+
+# Find which phyla are in plot but NOT in palette
+missing_colors <- setdiff(phyla_in_plot, phyla_in_palette)
+cat("\n\nPhyla in plot but MISSING from color palette:\n")
+print(missing_colors)
+
+# Find which phyla are in palette but NOT in plot
+extra_colors <- setdiff(phyla_in_palette, phyla_in_plot)
+cat("\n\nPhyla in palette but NOT in plot (these are OK):\n")
+print(extra_colors)
+
+# Check what ggplot is assigning to missing phyla
+if(length(missing_colors) > 0) {
+  cat("\n\n⚠️ PROBLEM: These phyla don't have assigned colors!\n")
+  cat("ggplot will assign default colors to them.\n")
+  cat("This is why you're seeing grey40 (ggplot's default grey)\n\n")
+  
+  # Show abundance of missing phyla
+  for(p in missing_colors) {
+    total_abund <- sum(relative_data$Relative_Abundance[relative_data$phylum == p])
+    cat(p, "- Total relative abundance:", round(total_abund, 2), "%\n")
+  }
+}
+```
+
+# Relative Abundance Plot - Samples aggregated by SITELOCALITY (with Unclassified Reads)
+```{r}
+# Aggregate the data by site locality and fraction
+site_aggregated <- relative_data %>%
+  group_by(sitelocality, fraction, phylum) %>%
+  summarise(Relative_Abundance = mean(Relative_Abundance, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create a sensible ordering for site localities (by turbidity)
+siteloc_order_turb <- c("McGrail_deep", "EFGB_shallow", "Alderdice_shallow", "Bright_shallow",
+                        "Diaphus_deep2", "EFGB_deep", "Diaphus_deep1", "Bright_deep2",
+                        "Bright_deep1", "Alderdice_deep1", "Stetson_shallow", "Alderdice_deep2")
+
+# Set factor order
+site_aggregated$sitelocality <- factor(site_aggregated$sitelocality, levels = siteloc_order_turb)
+
+# Create the site-level plot with updated palette
+p_site_w_unknown <- ggplot(site_aggregated, aes(x = sitelocality, y = Relative_Abundance, fill = phylum)) +
+  geom_bar(stat = "identity", position = "stack",
+           color = "black", size = 0.4, width = 0.85) +
+  facet_grid(~ fraction, scales = "free_x", space = "free_x") +
+  scale_fill_manual(values = phylum_color_map_w_unknown) +  # Updated palette name
+  labs(y = "Relative abundance (%)", x = "Site Locality", 
+       title = "Relative Abundance of Top 20 Phyla by Site (Including Unclassified) - 18S") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 12, color = "black"),
+    axis.text.y = element_text(size = 16, color = "black"),
+    axis.title = element_text(size = 17, color = "black"),
+    strip.background = element_blank(),
+    strip.text = element_text(size = 17, face = "bold", margin = margin(t = 0, b = 5)),
+    legend.title = element_text(size = 17, face = "bold", color = "black"),
+    legend.text = element_text(size = 16, color = "black"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.5, "cm")
+  )
+
+# Save the plot
+ggsave(file.path(output_dir, "18S_Top20_Phyla_RelativeAbundance_BySite_WITH_UNCLASSIFIED.pdf"), 
+       p_site_w_unknown, width = 14, height = 10)
+
+cat("\n✓ Site-aggregated plot saved to:", 
+    file.path(output_dir, "18S_Top20_Phyla_RelativeAbundance_BySite_WITH_UNCLASSIFIED.pdf"), "\n")
+
+# Display the plot
+print(p_site_w_unknown)
+```
+
+
+
+
+
+=====================================
+----------- ANCOMBC------------------
+=====================================
+# Load libraries
+```{r load ANCOMBC2 libraries}
+library(phyloseq)
+library(ANCOMBC)
+library(tidyverse)
+library(conflicted)
+library(foreach)
+library(rngtools)
+library(reshape2)
+```
+
+
+# Create phyloseq object using raw counts
+biotic_clean = asv table
+metazoo_taxatab rows = ASVs
+
+```{r create phyloseq object using raw counts}
+# Make sure ASV table is correct dimensions and a matrix
+biotic_clean_18S <- as.matrix(biotic_clean_18S)
+str(biotic_clean_18S)
+
+# Create phyloseq object
+ancom_physeq <- phyloseq(otu_table(biotic_clean_18S, taxa_are_rows = TRUE),
+                                sample_data(metadata_18S),
+                                tax_table(metazoo_tax_tab))
+# Export phyloseq object
+     save(ancom_physeq, file = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/Taxa_Output_18S/ancombc_raw_counts_physeq_18S.RData")
+```
+
+#Set prv_cut = 0.1. 0.1667 may be too conservative. 
+Use raw count data
+Since size fraction is a group, that would be 1/6 of the samples = 0.1667
+Using psuedo_sens = TRUE
+Pseudo-counts are small values (0.1, 0.5, 1) added to zero counts before log transformation, 
+but different pseudo-count choices can lead to false positives. The sensitivity analysis 
+(pseudo_sens = TRUE) re-runs the analysis with multiple pseudo-count values to identify 
+which significant results are robust across different choices versus those that are artifacts 
+of the specific pseudo-count used. This ensures our differentially abundant taxa findings are 
+reliable and not dependent on arbitrary data preprocessing decisions.
+```{r fraction check ANCOMBC}
+fraction_ancombc <- ancombc2(data = ancom_physeq, 
+                            fix_formula = "fraction",
+                             global = TRUE, 
+                             p_adj_method = "BH", 
+                             prv_cut = 0.10, 
+                             group = "fraction",
+                            pseudo_sens = TRUE)
+
+#Check for results
+print(fraction_ancombc$res_global)
+```
+
+
+# 1) Exctract top 20 most significant ASVs
+Extract the results from the ANCOMBC2 output, sort them by their p-values (or adjusted p-values), and then select the top 20 ASVs
+```{r Extract top 20 most significant ASVs}
+# Extract results from ANCOMBC2 output
+ancom_res <- fraction_ancombc$res_global
+
+# Sort the ASVs by the p-value or adjusted p-value (q_val) and select the top 20
+top20_asvs <- ancom_res %>%
+  dplyr::arrange(q_val) %>%
+  head(20) %>%
+  pull(taxon)  # Extract the ASV IDs
+
+# Print the top 20 ASVs
+print(top20_asvs)
+```
+
+
+2) Map the ASVs to their scientific name
+```{r map ASVs to scientific names}
+# Extract the taxonomic table from the phyloseq object
+tax_table <- as.data.frame(tax_table(ancom_physeq))
+
+# Filter the taxonomic table to only include the top 20 ASVs
+top20_taxonomy <- tax_table[rownames(tax_table) %in% top20_asvs, ]
+
+# Melt the phyloseq object (this already includes taxonomy)
+physeq_melted <- psmelt(ancom_physeq)
+
+# Filter to only include the top 20 ASVs 
+physeq_melted_top20 <- physeq_melted[physeq_melted$OTU %in% top20_asvs, ]
+
+# Check the result
+colnames(physeq_melted_top20)  # Should have clean column names
+
+# Check cleaned column names
+colnames(physeq_melted_clean)
+
+# Remove ALL duplicate columns, keeping only the first occurrence
+physeq_melted_clean <- physeq_melted_clean[, !duplicated(colnames(physeq_melted_clean))]
+
+# Now run your analysis
+physeq_melted_clean <- physeq_melted_clean %>%
+  dplyr::filter(OTU %in% top20_asvs) %>%
+  dplyr::arrange(fraction, Sample) %>%
+  dplyr::mutate(Sample = factor(Sample, levels = unique(Sample)))
+
+colnames(physeq_melted_clean)
+```
+
+
+3) Plot the abundance of the top 20 ASVs
+```{r Plot the abundance of the top 20 ASVs}
+# Check if 'fraction' column exists
+if (!"fraction" %in% colnames(physeq_melted_clean)) {
+  stop("The 'fraction' column is not found in the sample data.")
+}
+
+# Order the samples by 'fraction' and 'Sample'
+physeq_melted_frac <- physeq_melted_clean %>%
+  dplyr::filter(OTU %in% top20_asvs) %>%  # Filter only top 20 ASVs
+  dplyr::mutate(Sample = factor(Sample, levels = unique(Sample[order(fraction, Sample)])))
+
+# Create the plot with custom colors
+fraction_plot1 <- ggplot(physeq_melted_frac, aes(x = Sample, y = Abundance, fill = family)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_bw() +
+  labs(title = "Top 20 Significant ASVs Grouped by Fraction-18S", 
+       x = "Sample", 
+       y = "Abundance") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_grid(~ fraction, scales = "free_x", space = "free_x") +
+  scale_fill_manual(values = c20)  
+
+# Print the plot
+print(fraction_plot1)
+
+# Save
+ggsave("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/Taxa_Output_18S/ANCOMBC_abun_fraction_18S.pdf",
+      plot = last_plot(), 
+       device = "pdf", 
+       scale = 1, 
+       width = 11, 
+       height = 8.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+
+# Export .CSV of mapped unique families
+```{r export csv of unique families}
+tax_subset_18S <- tax_table[, c("phylum", "class", "order", "family")]
+unique_families_18S <- unique(tax_subset_18S)
+
+# Remove any rows where Family is NA
+unique_families_18S <- unique_families_18S[order(unique_families_18S$phylum, 
+                                          unique_families_18S$class,
+                                          unique_families_18S$order,
+                                          unique_families_18S$family), ]
+
+
+unique_families_clean_18S <- unique_families_18S[!grepl("[^[:alnum:]]$", unique_families_18S$family), ]
+
+# Remove taxonomic errors
+taxonomic_errors <- c("Annelida", "Nemertea", "Phoronida", "Phyllodocida", 
+                      "Chromadorea", "Pteropoda")
+
+unique_families_metazoa_only <- unique_families_clean_18S[
+  !unique_families_clean_18S$family %in% taxonomic_errors, ]
+
+write.csv(unique_families_metazoa_only, 
+          file = "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/Taxa_Output_18S/unique_families_18S_clean.csv", 
+          row.names = FALSE)
+```
+
+
+# Subset sessile and motile fractions
+```{r subset fractions}
+# Subset phyloseq objects - combine 100 and 500 as motile
+sessile_physeq <- subset_samples(ancom_physeq, fraction == "sessile")
+motile_physeq <- subset_samples(ancom_physeq, fraction %in% c("100", "500")) 
+
+# Check sample sizes
+cat("Sessile samples:", nsamples(sessile_physeq), "\n")
+cat("Motile samples (100 + 500):", nsamples(motile_physeq), "\n")
+
+# Check the breakdown of motile samples
+motile_breakdown <- table(sample_data(motile_physeq)$fraction)
+cat("Motile fraction breakdown:\n")
+print(motile_breakdown)
+
+# Remove taxa with zero abundance after subsetting
+sessile_physeq <- prune_taxa(taxa_sums(sessile_physeq) > 0, sessile_physeq)
+motile_physeq <- prune_taxa(taxa_sums(motile_physeq) > 0, motile_physeq)
+
+cat("\n=== SESSILE FRACTION ANALYSIS ===\n")
+sessile_ancombc <- ancombc2(
+  data = sessile_physeq,
+  tax_level = "phylum",
+  fix_formula = "turbidity_std_rank + depth",
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.10
+)
+
+cat("\n=== MOTILE FRACTIONS (100 + 500) ANALYSIS ===\n")
+motile_ancombc <- ancombc2(
+  data = motile_physeq,
+  tax_level = "phylum",
+  fix_formula = "turbidity_std_rank + depth",
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.10
+)
+
+# Extract sessile results
+sessile_turb <- sessile_ancombc$res %>%
+  dplyr::filter(q_turbidity_std_rank < 0.05) %>%
+  dplyr::arrange(q_turbidity_std_rank) %>%
+  dplyr::select(taxon, lfc_turbidity_std_rank, p_turbidity_std_rank, q_turbidity_std_rank)
+
+sessile_depth <- sessile_ancombc$res %>%
+  dplyr::filter(q_depth < 0.05) %>%
+  dplyr::arrange(q_depth) %>%
+  dplyr::select(taxon, lfc_depth, p_depth, q_depth)
+
+cat("Sessile - Significant phyla for turbidity:\n")
+print(sessile_turb)
+cat("Sessile - Significant phyla for depth:\n")
+print(sessile_depth)
+
+# Extract motile results
+motile_turb <- motile_ancombc$res %>%
+  dplyr::filter(q_turbidity_std_rank < 0.05) %>%
+  dplyr::arrange(q_turbidity_std_rank) %>%
+  dplyr::select(taxon, lfc_turbidity_std_rank, p_turbidity_std_rank, q_turbidity_std_rank)
+
+motile_depth <- motile_ancombc$res %>%
+  dplyr::filter(q_depth < 0.05) %>%
+  dplyr::arrange(q_depth) %>%
+  dplyr::select(taxon, lfc_depth, p_depth, q_depth)
+
+cat("Motile - Significant phyla for turbidity:\n")
+print(motile_turb)
+cat("Motile - Significant phyla for depth:\n")
+print(motile_depth)
+```
+
+
+# Test for significant differences in Phyla abundances across turbidty and depth gradients in ALL SAMPLES
+```{r phlya differences depth/turb all samples}
+## CHECK SPECIFICALLY FOR RHODOPHYTA
+cat("\n=== RHODOPHYTA SPECIFIC RESULTS ===\n")
+
+# Sessile Rhodophyta
+sessile_rhodo <- sessile_ancombc$res %>%
+  dplyr::filter(taxon == "Rhodophyta") %>%
+  dplyr::select(taxon, lfc_turbidity_std_rank, q_turbidity_std_rank, lfc_depth, q_depth)
+
+# Motile Rhodophyta  
+motile_rhodo <- motile_ancombc$res %>%
+  dplyr::filter(taxon == "Rhodophyta") %>%
+  dplyr::select(taxon, lfc_turbidity_std_rank, q_turbidity_std_rank, lfc_depth, q_depth)
+
+cat("Sessile Rhodophyta results:\n")
+print(sessile_rhodo)
+cat("Motile Rhodophyta results:\n")
+print(motile_rhodo)
+```
+
+
+
+# ----------------------- ANCOM-BC2 FRACTION, SITE, DEPTH + TURB ------------
+
+
+#  ------ 1. ANCOMBC phyla and families associated with each FRACTION ------
+Which taxa are enriched in each fraction
+Size-based community structure
+```{r fraction effects, phylum fam}
+# ========== FRACTION EFFECTS ANALYSIS  ========
+
+# Phylum level - fraction effects
+fraction_P_ancombc <- ancombc2(
+  data = ancom_physeq,
+  tax_level = "phylum",
+  fix_formula = "fraction",  # Testing 100µm vs 500µm vs sessile
+  global = TRUE,             # Global test across fractions
+  pairwise = TRUE,           # Which specific fractions differ
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "fraction",
+  pseudo_sens = TRUE
+)
+
+# Family level - fraction effects  
+fraction_F_ancombc <- ancombc2(
+  data = ancom_physeq,
+  tax_level = "family",
+  fix_formula = "fraction",
+  global = TRUE,
+  pairwise = TRUE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "fraction",
+  pseudo_sens = TRUE
+)
+
+# Function to extract and format fraction results
+extract_fraction_results <- function(ancombc_result, tax_level) {
+  
+  # Global results (which taxa differ between fractions)
+  global_res <- ancombc_result$res_global
+  global_res$Analysis <- paste0("Fraction_Effects_", tax_level)
+  global_res$Test_Type <- "Global"
+  
+  # Pairwise results (which specific fraction pairs differ)
+  pairwise_res <- ancombc_result$res_pair
+  pairwise_res$Analysis <- paste0("Fraction_Effects_", tax_level)
+  pairwise_res$Test_Type <- "Pairwise"
+  
+  return(list(global = global_res, pairwise = pairwise_res))
+}
+
+# Extract fraction results
+fraction_phylum_results <- extract_fraction_results(fraction_P_ancombc, "Phylum")
+fraction_family_results <- extract_fraction_results(fraction_F_ancombc, "Family")
+
+# Export fraction results
+write.csv(fraction_phylum_results$global, file.path(output_dir, "fraction_phylum_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(fraction_phylum_results$pairwise, file.path(output_dir, "fraction_phylum_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(fraction_family_results$global, file.path(output_dir, "fraction_family_global_results_18S.csv"), row.names = FALSE)
+write.csv(fraction_family_results$pairwise, file.path(output_dir, "fraction_family_pairwise_results_18S.csv"), row.names = FALSE)
+```
+
+
+
+
+# ------ 2. ANCOMBC phyla and families associated with each SITE -------
+
+Answers the questions:
+Which taxa vary significantly across the 12 sites
+Unmeasured environmental factors creating site-specific communities
+Geographic patterns in community structure
+```{r site, phylum and fam}
+# 1. All samples - Phylum level
+site_global_P_ancombc <- ancombc2(
+  data = ancom_physeq,
+  tax_level = "phylum",
+  fix_formula = "sitelocality",  # Categorical site variable
+  global = TRUE,               # Global test across all sites
+  pairwise = TRUE,             # Which specific sites differ
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "sitelocality",      # Grouping variable for global test
+  pseudo_sens = TRUE
+)
+
+# 2. All samples - Family level  
+site_global_F_ancombc <- ancombc2(
+  data = ancom_physeq,
+  tax_level = "family",
+  fix_formula = "sitelocality",
+  global = TRUE,
+  pairwise = TRUE,
+  p_adj_method = "BH", 
+  prv_cut = 0.1,
+  group = "sitelocality",
+  pseudo_sens = TRUE
+)
+
+# 3. Motile site effects - Phylum
+motile_site_ancombc <- ancombc2(
+  data = motile_physeq,
+  tax_level = "phylum",
+  fix_formula = "sitelocality",
+  global = TRUE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "sitelocality",
+  pseudo_sens = TRUE
+)
+
+# 4. Motile site effects - Family
+motile_site_FAMancombc <- ancombc2(
+  data = motile_physeq,
+  tax_level = "family",
+  fix_formula = "sitelocality",
+  global = TRUE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "sitelocality",
+  pseudo_sens = TRUE
+)
+
+# 5. Sessile site effects - Phylum
+sessile_site_ancombc <- ancombc2(
+  data = sessile_physeq,
+  tax_level = "phylum",
+  fix_formula = "sitelocality",
+  global = TRUE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "sitelocality",
+  pseudo_sens = TRUE
+)
+
+# 6. Sessile site effects - Family
+sessile_site_FAMancombc <- ancombc2(
+  data = sessile_physeq,
+  tax_level = "family",
+  fix_formula = "sitelocality",
+  global = TRUE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  group = "sitelocality",
+  pseudo_sens = TRUE
+)
+
+# EXPORT SITE EFFECTS RESULTS
+
+# Function to extract and format site results
+extract_site_results <- function(ancombc_result, analysis_name) {
+  
+  # Global results
+  global_res <- ancombc_result$res_global
+  global_res$Analysis <- analysis_name
+  global_res$Test_Type <- "Global"
+  
+  # Pairwise results (if available)
+  if("res_pair" %in% names(ancombc_result)) {
+    pairwise_res <- ancombc_result$res_pair  
+    pairwise_res$Analysis <- analysis_name
+    pairwise_res$Test_Type <- "Pairwise"
+  } else {
+    pairwise_res <- data.frame()
+  }
+  
+  return(list(global = global_res, pairwise = pairwise_res))
+}
+
+# Extract all site results
+site_all_phylum <- extract_site_results(site_global_P_ancombc, "All_Samples_Phylum")
+site_all_family <- extract_site_results(site_global_F_ancombc, "All_Samples_Family")
+site_motile_phylum <- extract_site_results(motile_site_ancombc, "Motile_Phylum")
+site_motile_family <- extract_site_results(motile_site_FAMancombc, "Motile_Family")
+site_sessile_phylum <- extract_site_results(sessile_site_ancombc, "Sessile_Phylum")
+site_sessile_family <- extract_site_results(sessile_site_FAMancombc, "Sessile_Family")
+
+# Export individual site global results
+write.csv(site_all_phylum$global, file.path(output_dir, "site_all_phylum_global_results_18S.csv"), row.names = FALSE)
+write.csv(site_all_family$global, file.path(output_dir, "site_all_family_global_results_18S.csv"), row.names = FALSE)
+write.csv(site_motile_phylum$global, file.path(output_dir, "site_motile_phylum_global_results_18S.csv"), row.names = FALSE)
+write.csv(site_motile_family$global, file.path(output_dir, "site_motile_family_global_results_18S.csv"), row.names = FALSE)
+write.csv(site_sessile_phylum$global, file.path(output_dir, "site_sessile_phylum_global_results_18S.csv"), row.names = FALSE)
+write.csv(site_sessile_family$global, file.path(output_dir, "site_sessile_family_global_results_18S.csv"), row.names = FALSE)
+
+# Export individual site pairwise results (if available)
+write.csv(site_all_phylum$pairwise, file.path(output_dir, "site_all_phylum_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(site_all_family$pairwise, file.path(output_dir, "site_all_family_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(site_motile_phylum$pairwise, file.path(output_dir, "site_motile_phylum_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(site_motile_family$pairwise, file.path(output_dir, "site_motile_family_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(site_sessile_phylum$pairwise, file.path(output_dir, "site_sessile_phylum_pairwise_results_18S.csv"), row.names = FALSE)
+write.csv(site_sessile_family$pairwise, file.path(output_dir, "site_sessile_family_pairwise_results_18S.csv"), row.names = FALSE)
+
+# Combine all global site results for comparison
+all_site_global <- rbind(
+  site_all_phylum$global,
+  site_all_family$global,
+  site_motile_phylum$global,
+  site_motile_family$global,
+  site_sessile_phylum$global,
+  site_sessile_family$global
+)
+
+write.csv(all_site_global, file.path(output_dir, "all_site_global_results_combined_18S.csv"), row.names = FALSE)
+
+# Create summary of significant results
+create_summary <- function(global_results, analysis_name) {
+  n_significant <- sum(global_results$diff_abn, na.rm = TRUE)
+  n_total <- nrow(global_results)
+  return(data.frame(
+    Analysis = analysis_name,
+    Total_Taxa = n_total,
+    Significant_Taxa = n_significant,
+    Percent_Significant = round((n_significant/n_total)*100, 1)
+  ))
+}
+
+# Create summary table
+summary_table <- rbind(
+  create_summary(site_all_phylum$global, "All_Samples_Phylum"),
+  create_summary(site_all_family$global, "All_Samples_Family"),
+  create_summary(site_motile_phylum$global, "Motile_Phylum"),
+  create_summary(site_motile_family$global, "Motile_Family"),
+  create_summary(site_sessile_phylum$global, "Sessile_Phylum"),
+  create_summary(site_sessile_family$global, "Sessile_Family"),
+  create_summary(fraction_phylum_results$global, "Fraction_Effects_Phylum"),
+  create_summary(fraction_family_results$global, "Fraction_Effects_Family")
+)
+
+write.csv(summary_table, file.path(output_dir, "all_analyses_summary_table_18S.csv"), row.names = FALSE)
+
+# Print summary
+print(summary_table)
+```
+
+
+```{r}
+# Set preference for dplyr functions
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::filter)
+
+# Get all LFC columns (both individual sites and pairwise comparisons)
+lfc_cols <- grep("^lfc_sitelocality", colnames(site_all_phylum$pairwise), value = TRUE)
+p_cols <- grep("^p_sitelocality", colnames(site_all_phylum$pairwise), value = TRUE)
+
+# Summary of effect sizes across all comparisons
+all_lfc_values <- unlist(site_all_phylum$pairwise[, lfc_cols])
+cat("Summary of all log-fold changes across site comparisons:\n")
+print(summary(abs(all_lfc_values)))
+
+# Find the largest effects for each taxon
+max_effects_per_taxon <- site_all_phylum$pairwise %>%
+  rowwise() %>%
+  dplyr::mutate(
+    max_lfc = max(abs(c_across(all_of(lfc_cols))), na.rm = TRUE),
+    min_pval = min(c_across(all_of(p_cols)), na.rm = TRUE)
+  ) %>%
+  dplyr::select(taxon, max_lfc, min_pval) %>%
+  arrange(desc(max_lfc))
+
+cat("Taxa with largest site effects:\n")
+print(max_effects_per_taxon)
+
+# Count significant raw p-values (before correction)
+raw_sig_count <- site_all_phylum$pairwise %>%
+  dplyr::select(taxon, all_of(p_cols)) %>%
+  rowwise() %>%
+  dplyr::mutate(
+    significant_raw_comparisons = sum(c_across(all_of(p_cols)) < 0.05, na.rm = TRUE),
+    total_comparisons = length(p_cols)
+  ) %>%
+  dplyr::select(taxon, significant_raw_comparisons, total_comparisons) %>%
+  arrange(desc(significant_raw_comparisons))
+
+cat("Raw significant comparisons per taxon (before multiple testing correction):\n")
+print(raw_sig_count)
+```
+
+
+# ------ 3. ANCOMBC phyla and families associated with DEPTH AND TURB ------
+```{r depth and turb, phylum fam}
+# ============ ENVIRONMENTAL EFFECTS ANALYSIS: DEPTH + TURBIDITY ===============
+# Testing across All Samples, Motile Fractions, and Sessile Fractions
+
+# Create ARMS ID for random effects (if needed later)
+sample_data(ancom_physeq)$ARMS_corrected <- paste(
+  sample_data(ancom_physeq)$sitelocality,
+  sample_data(ancom_physeq)$ARMS_ID_corrected,
+  sep = "_"
+)
+
+# ============== 1. ANCOM-BC2 ANALYSES: Environmental Effects (Depth + Turbidity) ==============
+
+cat("Running ANCOM-BC2 environmental analyses...\n")
+
+# 1/6 All Samples - Phylum Level
+env_phylum_all <- ancombc2(
+  data = ancom_physeq,
+  tax_level = "phylum",
+  fix_formula = "depth + turbidity_std_rank",
+  rand_formula = NULL,
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  pseudo_sens = TRUE
+)
+
+# 2/6 All Samples - Family Level  
+env_family_all <- ancombc2(
+  data = ancom_physeq,
+  tax_level = "family",
+  fix_formula = "depth + turbidity_std_rank",
+  rand_formula = NULL,
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  pseudo_sens = TRUE
+)
+
+# 3/6 Motile Fractions - Phylum Level
+env_phylum_motile <- ancombc2(
+  data = motile_physeq,
+  tax_level = "phylum",
+  fix_formula = "depth + turbidity_std_rank",
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  pseudo_sens = TRUE
+)
+
+# 4/6 Motile Fractions - Family Level
+env_family_motile <- ancombc2(
+  data = motile_physeq,
+  tax_level = "family",
+  fix_formula = "depth + turbidity_std_rank",
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  pseudo_sens = TRUE
+)
+
+# 5/6 Sessile Fraction - Phylum Level
+env_phylum_sessile <- ancombc2(
+  data = sessile_physeq,
+  tax_level = "phylum",
+  fix_formula = "depth + turbidity_std_rank",
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  pseudo_sens = TRUE
+)
+
+# 6/6 Sessile Fraction - Family Level
+env_family_sessile <- ancombc2(
+  data = sessile_physeq,
+  tax_level = "family",
+  fix_formula = "depth + turbidity_std_rank",
+  global = FALSE,
+  p_adj_method = "BH",
+  prv_cut = 0.1,
+  pseudo_sens = TRUE
+)
+
+cat("All ANCOM-BC2 analyses completed.\n")
+
+
+# ============== 2. EXTRACT RESULTS =============
+
+# Extract results objects
+env_results_phylum_all <- env_phylum_all$res
+env_results_family_all <- env_family_all$res
+env_results_phylum_motile <- env_phylum_motile$res
+env_results_family_motile <- env_family_motile$res
+env_results_phylum_sessile <- env_phylum_sessile$res
+env_results_family_sessile <- env_family_sessile$res
+
+# ============= 3. FUNCTION TO EXTRACT SIGNIFICANT TAXA =========
+extract_significant_environmental_taxa <- function(results, analysis_name, fraction_type, tax_level) {
+  
+  # Extract significant taxa for depth
+  depth_sig_indices <- which(results$diff_depth == TRUE)
+  turbidity_sig_indices <- which(results$diff_turbidity_std_rank == TRUE)
+  
+  # Create depth results dataframe
+  if(length(depth_sig_indices) > 0) {
+    depth_results <- data.frame(
+      Analysis = analysis_name,
+      Fraction = fraction_type,
+      Taxonomic_Level = tax_level,
+      Environmental_Variable = "Depth",
+      Taxon = results$taxon[depth_sig_indices],
+      Log_Fold_Change = round(results$lfc_depth[depth_sig_indices], 4),
+      P_value = results$p_depth[depth_sig_indices],
+      Q_value = results$q_depth[depth_sig_indices],
+      Robust = results$passed_ss_depth[depth_sig_indices],
+      Direction = ifelse(results$lfc_depth[depth_sig_indices] > 0, "Increases_with_depth", "Decreases_with_depth"),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    depth_results <- data.frame()
+  }
+  
+  # Create turbidity results dataframe
+  if(length(turbidity_sig_indices) > 0) {
+    turbidity_results <- data.frame(
+      Analysis = analysis_name,
+      Fraction = fraction_type,
+      Taxonomic_Level = tax_level,
+      Environmental_Variable = "Turbidity",
+      Taxon = results$taxon[turbidity_sig_indices],
+      Log_Fold_Change = round(results$lfc_turbidity_std_rank[turbidity_sig_indices], 4),
+      P_value = results$p_turbidity_std_rank[turbidity_sig_indices],
+      Q_value = results$q_turbidity_std_rank[turbidity_sig_indices],
+      Robust = results$passed_ss_turbidity_std_rank[turbidity_sig_indices],
+      Direction = ifelse(results$lfc_turbidity_std_rank[turbidity_sig_indices] > 0, "Increases_with_turbidity", "Decreases_with_turbidity"),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    turbidity_results <- data.frame()
+  }
+  
+  # Combine and return
+  combined_results <- rbind(depth_results, turbidity_results)
+  return(combined_results)
+}
+
+# ==============  4. EXTRACT SIGNIFICANT RESULTS FOR ALL ANALYSES ================
+
+cat("Extracting significant results...\n")
+
+# Extract significant results
+sig_env_phylum_all <- extract_significant_environmental_taxa(env_results_phylum_all, "Environmental_Effects", "All_Samples", "Phylum")
+sig_env_family_all <- extract_significant_environmental_taxa(env_results_family_all, "Environmental_Effects", "All_Samples", "Family")
+sig_env_phylum_motile <- extract_significant_environmental_taxa(env_results_phylum_motile, "Environmental_Effects", "Motile", "Phylum")
+sig_env_family_motile <- extract_significant_environmental_taxa(env_results_family_motile, "Environmental_Effects", "Motile", "Family")
+sig_env_phylum_sessile <- extract_significant_environmental_taxa(env_results_phylum_sessile, "Environmental_Effects", "Sessile", "Phylum")
+sig_env_family_sessile <- extract_significant_environmental_taxa(env_results_family_sessile, "Environmental_Effects", "Sessile", "Family")
+
+# Combine all significant results
+all_environmental_significant <- rbind(
+  sig_env_phylum_all,
+  sig_env_family_all,
+  sig_env_phylum_motile,
+  sig_env_family_motile,
+  sig_env_phylum_sessile,
+  sig_env_family_sessile
+)
+
+# ===================  5. EXPORT RESULTS TO CSV ===================
+
+cat("Exporting results to CSV files...\n")
+
+# Export full results (all taxa, not just significant)
+write.csv(env_results_phylum_all, file.path(output_dir, "environmental_phylum_all_samples_full_18S.csv"), row.names = FALSE)
+write.csv(env_results_family_all, file.path(output_dir, "environmental_family_all_samples_full_18S.csv"), row.names = FALSE)
+write.csv(env_results_phylum_motile, file.path(output_dir, "environmental_phylum_motile_full_18S.csv"), row.names = FALSE)
+write.csv(env_results_family_motile, file.path(output_dir, "environmental_family_motile_full_18S.csv"), row.names = FALSE)
+write.csv(env_results_phylum_sessile, file.path(output_dir, "environmental_phylum_sessile_full_18S.csv"), row.names = FALSE)
+write.csv(env_results_family_sessile, file.path(output_dir, "environmental_family_sessile_full_18S.csv"), row.names = FALSE)
+
+# Export significant results only
+write.csv(sig_env_phylum_all, file.path(output_dir, "environmental_phylum_all_samples_significant_18S.csv"), row.names = FALSE)
+write.csv(sig_env_family_all, file.path(output_dir, "environmental_family_all_samples_significant_18S.csv"), row.names = FALSE)
+write.csv(sig_env_phylum_motile, file.path(output_dir, "environmental_phylum_motile_significant_18S.csv"), row.names = FALSE)
+write.csv(sig_env_family_motile, file.path(output_dir, "environmental_family_motile_significant_18S.csv"), row.names = FALSE)
+write.csv(sig_env_phylum_sessile, file.path(output_dir,  "environmental_phylum_sessile_significant_18S.csv"), row.names = FALSE)
+write.csv(sig_env_family_sessile, file.path(output_dir, "environmental_family_sessile_significant_18S.csv"), row.names = FALSE)
+
+# Export combined significant results
+write.csv(all_environmental_significant, file.path(output_dir, "all_environmental_significant_results_18S.csv"), row.names = FALSE)
+
+
+# =================== 6. CREATE SUMMARY TABLE ===================
+
+env_summary_table <- data.frame(
+  Analysis = c("All_Samples_Phylum", "All_Samples_Family", "Motile_Phylum", "Motile_Family", "Sessile_Phylum", "Sessile_Family"),
+  Total_Taxa_Tested = c(
+    nrow(env_results_phylum_all), nrow(env_results_family_all),
+    nrow(env_results_phylum_motile), nrow(env_results_family_motile),
+    nrow(env_results_phylum_sessile), nrow(env_results_family_sessile)
+  ),
+  Significant_Depth = c(
+    sum(env_results_phylum_all$diff_depth, na.rm = TRUE),
+    sum(env_results_family_all$diff_depth, na.rm = TRUE),
+    sum(env_results_phylum_motile$diff_depth, na.rm = TRUE),
+    sum(env_results_family_motile$diff_depth, na.rm = TRUE),
+    sum(env_results_phylum_sessile$diff_depth, na.rm = TRUE),
+    sum(env_results_family_sessile$diff_depth, na.rm = TRUE)
+  ),
+  Significant_Turbidity = c(
+    sum(env_results_phylum_all$diff_turbidity_std_rank, na.rm = TRUE),
+    sum(env_results_family_all$diff_turbidity_std_rank, na.rm = TRUE),
+    sum(env_results_phylum_motile$diff_turbidity_std_rank, na.rm = TRUE),
+    sum(env_results_family_motile$diff_turbidity_std_rank, na.rm = TRUE),
+    sum(env_results_phylum_sessile$diff_turbidity_std_rank, na.rm = TRUE),
+    sum(env_results_family_sessile$diff_turbidity_std_rank, na.rm = TRUE)
+  ),
+  Total_Significant = c(
+    nrow(sig_env_phylum_all), nrow(sig_env_family_all),
+    nrow(sig_env_phylum_motile), nrow(sig_env_family_motile),
+    nrow(sig_env_phylum_sessile), nrow(sig_env_family_sessile)
+  )
+)
+
+write.csv(env_summary_table, file.path(output_dir, "environmental_analysis_summary.csv"), row.names = FALSE)
+
+
+# =================== 7. PRINT RESULTS SUMMARY ===================
+
+cat("\n=== ENVIRONMENTAL ANALYSIS SUMMARY ===\n")
+print(env_summary_table)
+
+cat("\n=== SIGNIFICANT RESULTS PREVIEW ===\n")
+if(nrow(all_environmental_significant) > 0) {
+  print(head(all_environmental_significant, 15))
+  cat("\nTotal significant environmental effects:", nrow(all_environmental_significant), "\n")
+  cat("Robust effects (passed sensitivity analysis):", sum(all_environmental_significant$Robust), "\n")
+} else {
+  cat("No significant results found\n")
+}
+```
+
+# ------ 4. Tables with statistics ------
+```{r export statistics}
+# Function to extract detailed environmental effects
+extract_detailed_environmental_effects <- function(results, analysis_name, fraction_name, tax_level) {
+  
+  # Extract depth effects (significant only)
+  depth_significant <- which(results$diff_depth == TRUE)
+  
+  if(length(depth_significant) > 0) {
+    depth_data <- data.frame(
+      Analysis = analysis_name,
+      Fraction = fraction_name,
+      Taxonomic_Level = tax_level,
+      Environmental_Variable = "Depth",
+      Taxon = results$taxon[depth_significant],
+      Log_Fold_Change = round(results$lfc_depth[depth_significant], 4),
+      P_value = format(results$p_depth[depth_significant], scientific = TRUE, digits = 3),
+      Q_value = format(results$q_depth[depth_significant], scientific = TRUE, digits = 3),
+      Robust = results$passed_ss_depth[depth_significant],
+      Direction = ifelse(results$lfc_depth[depth_significant] > 0, "Increases", "Decreases"),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    depth_data <- data.frame()
+  }
+  
+  # Extract turbidity effects (significant only)
+  turbidity_significant <- which(results$diff_turbidity_std_rank == TRUE)
+  
+  if(length(turbidity_significant) > 0) {
+    turbidity_data <- data.frame(
+      Analysis = analysis_name,
+      Fraction = fraction_name,
+      Taxonomic_Level = tax_level,
+      Environmental_Variable = "Turbidity",
+      Taxon = results$taxon[turbidity_significant],
+      Log_Fold_Change = round(results$lfc_turbidity_std_rank[turbidity_significant], 4),
+      P_value = format(results$p_turbidity_std_rank[turbidity_significant], scientific = TRUE, digits = 3),
+      Q_value = format(results$q_turbidity_std_rank[turbidity_significant], scientific = TRUE, digits = 3),
+      Robust = results$passed_ss_turbidity_std_rank[turbidity_significant],
+      Direction = ifelse(results$lfc_turbidity_std_rank[turbidity_significant] > 0, "Increases", "Decreases"),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    turbidity_data <- data.frame()
+  }
+  
+  # Combine depth and turbidity results
+  combined_data <- rbind(depth_data, turbidity_data)
+  
+  return(combined_data)
+}
+
+# Extract detailed results from all environmental analyses
+detailed_results_list <- list(
+  extract_detailed_environmental_effects(env_results_phylum, "Environmental_Effects", "All_Samples", "Phylum"),
+  extract_detailed_environmental_effects(env_results, "Environmental_Effects", "All_Samples", "Family"),
+  extract_detailed_environmental_effects(motile_PHY_env_results, "Environmental_Effects", "Motile", "Phylum"),
+  extract_detailed_environmental_effects(motile_FAM_env_results, "Environmental_Effects", "Motile", "Family"),
+  extract_detailed_environmental_effects(sessile_PHY_env_results, "Environmental_Effects", "Sessile", "Phylum"),
+  extract_detailed_environmental_effects(sessile_FAM_env_results, "Environmental_Effects", "Sessile", "Family")
+)
+
+# Combine all results into one comprehensive table
+detailed_environmental_table <- do.call(rbind, detailed_results_list)
+
+# Sort by fraction, taxonomic level, environmental variable, and q-value
+detailed_environmental_table <- detailed_environmental_table[
+  order(detailed_environmental_table$Fraction, 
+        detailed_environmental_table$Taxonomic_Level,
+        detailed_environmental_table$Environmental_Variable,
+        as.numeric(detailed_environmental_table$Q_value)), 
+]
+
+# Add row numbers for reference
+detailed_environmental_table$Entry_ID <- 1:nrow(detailed_environmental_table)
+
+# Reorder columns for clarity
+detailed_environmental_table <- detailed_environmental_table[, c("Entry_ID", "Analysis", "Fraction", "Taxonomic_Level", 
+                                                               "Environmental_Variable", "Taxon", "Log_Fold_Change", 
+                                                               "P_value", "Q_value", "Robust", "Direction")]
+
+# Export the detailed table
+write.csv(detailed_environmental_table, "Detailed_Environmental_Effects_Table.csv", row.names = FALSE)
+
+# Create a version with only robust results
+robust_only_table <- detailed_environmental_table[detailed_environmental_table$Robust == TRUE, ]
+
+write.csv(robust_only_table, "Robust_Environmental_Effects_Table.csv", row.names = FALSE)
+
+# Print preview of the table
+print("=== DETAILED ENVIRONMENTAL EFFECTS TABLE (First 20 rows) ===")
+print(head(detailed_environmental_table, 20))
+
+# Print summary statistics
+cat("\n=== SUMMARY STATISTICS ===\n")
+cat("Total significant environmental effects:", nrow(detailed_environmental_table), "\n")
+cat("Robust effects (passed sensitivity analysis):", sum(detailed_environmental_table$Robust), "\n")
+cat("Depth effects:", sum(detailed_environmental_table$Environmental_Variable == "Depth"), "\n")
+cat("Turbidity effects:", sum(detailed_environmental_table$Environmental_Variable == "Turbidity"), "\n")
+
+# Create summary by fraction and taxonomic level
+summary_by_analysis <- detailed_environmental_table %>%
+  group_by(Fraction, Taxonomic_Level, Environmental_Variable) %>%
+  dplyr::summarise(
+    Total_Effects = n(),
+    Robust_Effects = sum(Robust),
+    Increases = sum(Direction == "Increases"),
+    Decreases = sum(Direction == "Decreases"),
+    .groups = "drop"
+  )
+
+print("\n=== SUMMARY BY ANALYSIS TYPE ===")
+print(summary_by_analysis)
+
+write.csv(summary_by_analysis, "Environmental_Effects_Summary_by_Analysis.csv", row.names = FALSE)
+
+# Create a version showing the strongest effects (lowest q-values)
+top_effects <- detailed_environmental_table[1:min(20, nrow(detailed_environmental_table)), ]
+
+print("\n=== TOP 20 STRONGEST ENVIRONMENTAL EFFECTS ===")
+print(top_effects)
+
+write.csv(top_effects, "Top_Environmental_Effects.csv", row.names = FALSE)
+```
+
+
+# ------ 5. Create visualization for each fraction- EDITING FOR FINAL ------
+
+
+# Barplots of Phyla abundance across sites, colored by turbidity values (cdivis)
+```{r barplots }
+# =============================================================================
+# ENVIRONMENTAL EFFECTS PLOTS: Phyla by Depth and Turbidity
+# Updated with Cividis (Turbidity) and Mako Blue Gradient (Depth)
+# =============================================================================
+
+# Load required libraries
+#library(ggplot2)
+#library(dplyr)
+#library(phyloseq)
+#library(viridis)
+#library(gridExtra)
+
+# Resolve conflicts
+#conflicts_prefer(dplyr::mutate)
+#conflicts_prefer(dplyr::summarise)
+#conflicts_prefer(dplyr::filter)
+
+# Function to create environmental effects barplots with improved color schemes
+create_environmental_phylum_barplots <- function(physeq_obj, significant_results, 
+                                               env_variable = "Turbidity",
+                                               fraction_name = "Motile",
+                                               y_margin = 0.2) {
+  
+  # Filter for the specific environmental variable
+  env_data <- significant_results %>% 
+    filter(Environmental_Variable == env_variable & Taxonomic_Level == "Phylum")
+  
+  if(nrow(env_data) == 0) {
+    message(paste("No significant", env_variable, "effects found for", fraction_name, "fraction"))
+    return(NULL)
+  }
+  
+  # Get phyla of interest
+  phyla_of_interest <- env_data$Taxon
+  
+  # Transform phyloseq data for plotting
+  physeq_rel <- transform_sample_counts(physeq_obj, function(x) x/sum(x))
+  
+  # Melt to long format
+  plot_data <- psmelt(physeq_rel) %>%
+    filter(phylum %in% phyla_of_interest)
+  
+  # Calculate mean abundance and error bars by site (aggregate environmental variables)
+  summary_data <- plot_data %>%
+   group_by(phylum, sitelocality) %>%  # Only group by phylum and site
+   dplyr::summarise(
+      mean_abundance = mean(Abundance, na.rm = TRUE),
+      se = sd(Abundance, na.rm = TRUE) / sqrt(n()),
+      # Take mean environmental values for each site
+      turbidity_std_rank = mean(turbidity_std_rank, na.rm = TRUE),
+      depth = mean(depth, na.rm = TRUE),
+      .groups = "drop"
+   ) %>%
+   arrange(sitelocality)
+  
+  # Create individual plots for each phylum
+  phylum_plots <- list()
+  
+  for(p in phyla_of_interest) {
+    # Get data for this phylum
+    p_data <- summary_data %>% filter(phylum == p)
+    
+    # Get effect information
+    p_effect <- env_data %>% filter(Taxon == p)
+    
+    # Create effect direction and significance label
+    direction <- ifelse(p_effect$Log_Fold_Change > 0, "↑", "↓")
+    robust_status <- ifelse(p_effect$Robust, "**", "*")
+    effect_label <- paste0(direction, " ", env_variable, " ", robust_status)
+    
+    # Determine plot limits
+    plot_max_y <- max(p_data$mean_abundance + p_data$se, na.rm = TRUE) * (1 + y_margin)
+    
+    # Create the barplot
+    if(env_variable == "Turbidity") {
+      p1 <- ggplot(p_data, aes(x = reorder(sitelocality, turbidity_std_rank), 
+                               y = mean_abundance, 
+                               fill = turbidity_std_rank)) +
+        geom_col(color = "black", size = 0.3) +
+        geom_errorbar(aes(ymin = mean_abundance - se, ymax = mean_abundance + se),
+                      width = 0.4, size = 0.5) +
+        scale_fill_viridis_c(
+          option = "cividis",  # Cividis color scale (blue to yellow)
+          name = "Turbidity\n(Std Rank)",
+          direction = 1  # Higher values = more yellow
+        ) +
+        labs(
+          title = paste0(p, " (", fraction_name, " Fraction)"),
+          subtitle = paste0("Effect: ", effect_label, 
+                          " (LFC = ", round(p_effect$Log_Fold_Change, 3), 
+                          ", q = ", format(p_effect$Q_value, scientific = TRUE, digits = 2), ")"),
+          x = "Site (ordered by turbidity)",
+          y = "Relative Abundance"
+        )
+    } else {
+      # For depth effects, use mako gradient (darker blue = deeper)
+      p1 <- ggplot(p_data, aes(x = reorder(sitelocality, depth), 
+                               y = mean_abundance, 
+                               fill = depth)) +
+        geom_col(color = "black", size = 0.3) +
+        geom_errorbar(aes(ymin = mean_abundance - se, ymax = mean_abundance + se),
+                      width = 0.4, size = 0.5) +
+        scale_fill_viridis_c(
+          option = "mako",  # Mako color scale
+          name = "Depth\n(meters)",
+          direction = -1  # Darker blue = deeper (higher depth values)
+        ) +
+        labs(
+          title = paste0(p, " (", fraction_name, " Fraction)"),
+          subtitle = paste0("Effect: ", effect_label, 
+                          " (LFC = ", round(p_effect$Log_Fold_Change, 3), 
+                          ", q = ", format(p_effect$Q_value, scientific = TRUE, digits = 2), ")"),
+          x = "Site (ordered by depth)",
+          y = "Relative Abundance"
+        )
+    }
+    
+    # Add common theme
+    p1 <- p1 +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11),
+        panel.grid.minor = element_blank(),
+        legend.title = element_text(size = 10),
+        legend.text = element_text(size = 9)
+      ) +
+      ylim(0, plot_max_y)
+    
+    phylum_plots[[p]] <- p1
+  }
+  
+  # Skip if no plots were created
+  if(length(phylum_plots) == 0) {
+    message("No plots could be created for any of the specified phyla.")
+    return(NULL)
+  }
+  
+  # Arrange the plots in a grid
+  n_cols <- min(3, length(phylum_plots))  # Max 3 columns
+  n_rows <- ceiling(length(phylum_plots) / n_cols)
+  
+  # Combine plots into a grid
+  grid_plot <- gridExtra::grid.arrange(
+    grobs = phylum_plots,
+    ncol = n_cols,
+    top = grid::textGrob(
+      paste0("Environmental Effects: ", env_variable, " (", fraction_name, " Fraction)"),
+      gp = grid::gpar(fontsize = 16, fontface = "bold")
+    )
+  )
+  
+  return(list(grid_plot = grid_plot, individual_plots = phylum_plots))
+}
+
+# Function to create side-by-side comparison of motile vs sessile
+create_fraction_comparison_plot <- function(motile_results, sessile_results, env_variable = "Turbidity") {
+  
+  # Get overlapping phyla
+  motile_phyla <- motile_results %>% 
+    filter(Environmental_Variable == env_variable) %>% 
+    pull(Taxon)
+  
+  sessile_phyla <- sessile_results %>% 
+    filter(Environmental_Variable == env_variable) %>% 
+    pull(Taxon)
+  
+  common_phyla <- intersect(motile_phyla, sessile_phyla)
+  
+  if(length(common_phyla) == 0) {
+    message(paste("No common phyla found for", env_variable, "effects"))
+    return(NULL)
+  }
+
+  # Create comparison data
+  comparison_data <- rbind(
+    motile_results %>% 
+      filter(Environmental_Variable == env_variable & Taxon %in% common_phyla) %>%
+      dplyr::mutate(Fraction_Type = "Motile"),
+    sessile_results %>% 
+      filter(Environmental_Variable == env_variable & Taxon %in% common_phyla) %>%
+      dplyr::mutate(Fraction_Type = "Sessile")
+  )
+  
+  # Create comparison plot with improved colors
+  comparison_plot <- ggplot(comparison_data, aes(x = Taxon, y = Log_Fold_Change, fill = Fraction_Type)) +
+    geom_col(position = "dodge", color = "black", size = 0.3) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.7) +
+    scale_fill_manual(
+      values = c("Motile" = "#3B8C6E", "Sessile" = "#FEBC2C"),
+      name = "Fraction"
+    ) +
+    labs(
+      title = paste0("Comparison of ", env_variable, " Effects: Motile vs Sessile Fractions"),
+      x = "Phylum",
+      y = "Log Fold Change",
+      fill = "Fraction"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(size = 14, face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  return(comparison_plot)
+}
+
+# =============================================================================
+# CREATE SIGNIFICANT RESULTS DATA FROM AVAILABLE OBJECTS
+# =============================================================================
+
+cat("Creating environmental significant results data...\n")
+
+# Function to extract significant results from environmental results objects
+extract_env_significant <- function(env_results_obj, fraction_name, tax_level) {
+  
+  if(!exists(deparse(substitute(env_results_obj)))) {
+    return(data.frame())
+  }
+  
+  results <- get(deparse(substitute(env_results_obj)))
+  
+  # Extract significant depth effects
+  depth_sig <- which(results$diff_depth == TRUE)
+  turbidity_sig <- which(results$diff_turbidity_std_rank == TRUE)
+  
+  # Create depth results
+  depth_data <- data.frame()
+  if(length(depth_sig) > 0) {
+    depth_data <- data.frame(
+      Analysis = "Environmental_Effects",
+      Fraction = fraction_name,
+      Taxonomic_Level = tax_level,
+      Environmental_Variable = "Depth",
+      Taxon = results$taxon[depth_sig],
+      Log_Fold_Change = round(results$lfc_depth[depth_sig], 4),
+      P_value = results$p_depth[depth_sig],
+      Q_value = results$q_depth[depth_sig],
+      Robust = results$passed_ss_depth[depth_sig],
+      Direction = ifelse(results$lfc_depth[depth_sig] > 0, "Increases_with_depth", "Decreases_with_depth"),
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  # Create turbidity results
+  turbidity_data <- data.frame()
+  if(length(turbidity_sig) > 0) {
+    turbidity_data <- data.frame(
+      Analysis = "Environmental_Effects",
+      Fraction = fraction_name,
+      Taxonomic_Level = tax_level,
+      Environmental_Variable = "Turbidity",
+      Taxon = results$taxon[turbidity_sig],
+      Log_Fold_Change = round(results$lfc_turbidity_std_rank[turbidity_sig], 4),
+      P_value = results$p_turbidity_std_rank[turbidity_sig],
+      Q_value = results$q_turbidity_std_rank[turbidity_sig],
+      Robust = results$passed_ss_turbidity_std_rank[turbidity_sig],
+      Direction = ifelse(results$lfc_turbidity_std_rank[turbidity_sig] > 0, "Increases_with_turbidity", "Decreases_with_turbidity"),
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  return(rbind(depth_data, turbidity_data))
+}
+
+# Extract significant results from available objects
+sig_env_phylum_motile <- data.frame()
+sig_env_phylum_sessile <- data.frame()
+
+if(exists("motile_PHY_env_results")) {
+  sig_env_phylum_motile <- extract_env_significant(motile_PHY_env_results, "Motile", "Phylum")
+  cat("Extracted", nrow(sig_env_phylum_motile), "significant results for motile phyla\n")
+}
+
+if(exists("sessile_PHY_env_results")) {
+  sig_env_phylum_sessile <- extract_env_significant(sessile_PHY_env_results, "Sessile", "Phylum")
+  cat("Extracted", nrow(sig_env_phylum_sessile), "significant results for sessile phyla\n")
+}
+
+# Try alternative object names if the above don't exist
+if(nrow(sig_env_phylum_motile) == 0 && exists("env_results_phylum_motile")) {
+  sig_env_phylum_motile <- extract_env_significant(env_results_phylum_motile, "Motile", "Phylum")
+  cat("Extracted", nrow(sig_env_phylum_motile), "significant results for motile phyla (alternative)\n")
+}
+
+if(nrow(sig_env_phylum_sessile) == 0 && exists("env_results_phylum_sessile")) {
+  sig_env_phylum_sessile <- extract_env_significant(env_results_phylum_sessile, "Sessile", "Phylum")
+  cat("Extracted", nrow(sig_env_phylum_sessile), "significant results for sessile phyla (alternative)\n")
+}
+
+# =============================================================================
+# CREATE PLOTS FOR MOTILE FRACTION
+# =============================================================================
+
+cat("Creating environmental effect plots for motile fraction...\n")
+
+# Turbidity effects - Motile
+if(nrow(sig_env_phylum_motile) > 0) {
+  
+  motile_turbidity_plots <- create_environmental_phylum_barplots(
+    physeq_obj = motile_physeq,
+    significant_results = sig_env_phylum_motile,
+    env_variable = "Turbidity",
+    fraction_name = "Motile",
+    y_margin = 0.2
+  )
+  
+  if(!is.null(motile_turbidity_plots)) {
+    ggsave("Motile_Turbidity_Phyla_Cividis.pdf", 
+           motile_turbidity_plots$grid_plot,
+           width = 16, height = 12, dpi = 300)
+    cat("Saved: Motile_Turbidity_Phyla_Cividis.pdf\n")
+  }
+}
+
+# Depth effects - Motile  
+if(nrow(sig_env_phylum_motile) > 0) {
+  
+  motile_depth_plots <- create_environmental_phylum_barplots(
+    physeq_obj = motile_physeq,
+    significant_results = sig_env_phylum_motile,
+    env_variable = "Depth",
+    fraction_name = "Motile",
+    y_margin = 0.2
+  )
+  
+  if(!is.null(motile_depth_plots)) {
+    ggsave("Motile_Depth_Phyla_Mako.pdf", 
+           motile_depth_plots$grid_plot,
+           width = 16, height = 12, dpi = 300)
+    cat("Saved: Motile_Depth_Phyla_Mako.pdf\n")
+  }
+}
+
+# =============================================================================
+# CREATE PLOTS FOR SESSILE FRACTION
+# =============================================================================
+
+cat("Creating environmental effect plots for sessile fraction...\n")
+
+# Turbidity effects - Sessile
+if(nrow(sig_env_phylum_sessile) > 0) {
+  
+  sessile_turbidity_plots <- create_environmental_phylum_barplots(
+    physeq_obj = sessile_physeq,
+    significant_results = sig_env_phylum_sessile,
+    env_variable = "Turbidity",
+    fraction_name = "Sessile",
+    y_margin = 0.2
+  )
+  
+  if(!is.null(sessile_turbidity_plots)) {
+    ggsave("Sessile_Turbidity_Phyla_Cividis.pdf", 
+           sessile_turbidity_plots$grid_plot,
+           width = 16, height = 12, dpi = 300)
+    cat("Saved: Sessile_Turbidity_Phyla_Cividis.pdf\n")
+  }
+}
+
+# Depth effects - Sessile
+if(nrow(sig_env_phylum_sessile) > 0) {
+  
+  sessile_depth_plots <- create_environmental_phylum_barplots(
+    physeq_obj = sessile_physeq,
+    significant_results = sig_env_phylum_sessile,
+    env_variable = "Depth",
+    fraction_name = "Sessile",
+    y_margin = 0.2
+  )
+  
+  if(!is.null(sessile_depth_plots)) {
+    ggsave("Sessile_Depth_Phyla_Mako.pdf", 
+           sessile_depth_plots$grid_plot,
+           width = 14, height = 6, dpi = 300)
+    cat("Saved: Sessile_Depth_Phyla_Mako.pdf\n")
+  }
+}
+
+# =============================================================================
+# CREATE COMPARISON PLOTS
+# =============================================================================
+
+cat("Creating fraction comparison plots...\n")
+
+# Create comparison plots if both motile and sessile data exist
+if(nrow(sig_env_phylum_motile) > 0 && nrow(sig_env_phylum_sessile) > 0) {
+  
+  # Turbidity comparison
+  turbidity_comparison <- create_fraction_comparison_plot(
+    sig_env_phylum_motile, sig_env_phylum_sessile, "Turbidity"
+  )
+  
+  if(!is.null(turbidity_comparison)) {
+    ggsave("Fraction_Comparison_Turbidity_Effects_Final.pdf", turbidity_comparison,
+           width = 12, height = 8, dpi = 300)
+    cat("Saved: Fraction_Comparison_Turbidity_Effects_Final.pdf\n")
+  }
+  
+  # Depth comparison
+  depth_comparison <- create_fraction_comparison_plot(
+    sig_env_phylum_motile, sig_env_phylum_sessile, "Depth"
+  )
+  
+  if(!is.null(depth_comparison)) {
+    ggsave("Fraction_Comparison_Depth_Effects_Final.pdf", depth_comparison,
+           width = 12, height = 8, dpi = 300)
+    cat("Saved: Fraction_Comparison_Depth_Effects_Final.pdf\n")
+  }
+}
+
+# =============================================================================
+# SUMMARY
+# =============================================================================
+
+cat("\n=== ENVIRONMENTAL PLOTTING SUMMARY ===\n")
+cat("Motile significant phyla:", nrow(sig_env_phylum_motile), "\n")
+cat("Sessile significant phyla:", nrow(sig_env_phylum_sessile), "\n")
+
+if(nrow(sig_env_phylum_motile) > 0) {
+  cat("Motile phyla with effects:\n")
+  print(sig_env_phylum_motile %>% select(Taxon, Environmental_Variable, Log_Fold_Change, Q_value, Robust))
+}
+
+if(nrow(sig_env_phylum_sessile) > 0) {
+  cat("Sessile phyla with effects:\n")
+  print(sig_env_phylum_sessile %>% select(Taxon, Environmental_Variable, Log_Fold_Change, Q_value, Robust))
+}
+
+cat("\nEnvironmental effects plotting completed!\n")
+cat("Check your working directory for PDF files.\n")
+```
+
+
+# LFC take 2 12/4 simpler code - R should not crash
+#part 1
+```{r}
+# RECOVERY SCRIPT - Reload essential 18S ANCOMBC objects from CSV files
+# This is much safer than running the full analysis again
+# STEP 1: Reload the significant results
+cat("Loading significant results from CSV files...\n")
+
+all_environmental_significant <- read.csv("all_environmental_significant_results_18S.csv")
+cat("✓ Loaded all_environmental_significant:", nrow(all_environmental_significant), "rows\n")
+
+# STEP 2: Load phyloseq object if saved
+if(file.exists("ancombc_raw_counts_physeq_18S.RData")) {
+  cat("Loading phyloseq object...\n")
+  load("ancombc_raw_counts_physeq_18S.RData")
+  cat("✓ Loaded phyloseq object\n")
+} else {
+  cat("⚠ Phyloseq RData file not found\n")
+}
+
+# STEP 3: Create the turbidity_data_18S object (the one we need for plotting)
+cat("\nCreating turbidity_data_18S from all_environmental_significant...\n")
+
+# Get taxonomy table for phylum mapping
+if(exists("ancom_physeq")) {
+  tax_table_df <- as.data.frame(tax_table(ancom_physeq))
+  
+  family_phylum_map <- tax_table_df %>%
+    filter(!is.na(family) & family != "") %>%
+    distinct(family, phylum) %>%
+    mutate(
+      family_clean = gsub("^f__", "", family),
+      family_clean = gsub(";.*", "", family_clean),
+      phylum_clean = gsub("^p__", "", phylum),
+      phylum_clean = gsub(";.*", "", phylum_clean)
+    ) %>%
+    select(family_clean, phylum_clean)
+  
+  # Create turbidity_data_18S
+  turbidity_data_18S <- all_environmental_significant %>%
+    filter(Taxonomic_Level == "Family" & Environmental_Variable == "Turbidity") %>%
+    mutate(Family_clean = Taxon) %>%
+    left_join(family_phylum_map, by = c("Family_clean" = "family_clean")) %>%
+    rename(Phylum = phylum_clean) %>%
+    filter(!is.na(Phylum)) %>%
+    mutate(Direction_simple = ifelse(Log_Fold_Change > 0, "Increases", "Decreases"))
+  
+  cat("✓ Created turbidity_data_18S:", nrow(turbidity_data_18S), "families\n")
+  cat("  Phyla:", length(unique(turbidity_data_18S$Phylum)), "\n")
+  cat("  Robust effects:", sum(turbidity_data_18S$Robust), "\n")
+  
+} else {
+  cat("✗ Cannot create turbidity_data_18S without phyloseq object\n")
+}
+
+cat("\n=== RECOVERY COMPLETE ===\n")
+cat("Objects now in environment:\n")
+cat("- all_environmental_significant\n")
+if(exists("ancom_physeq")) cat("- ancom_physeq\n")
+if(exists("turbidity_data_18S")) cat("- turbidity_data_18S\n")
+```
+
+===============================
+----- FUNCTIONAL ANALYSIS ----
+==============================
+
+## Functional Trait Analysis: Testing Feeding Strategy as Predictor of Turbidity Sensitivity
+
+Overview
+This section tests whether nutritional strategy predicts family-level turbidity responses using 18S ARMS metabarcoding data. The analysis assigns families to functional groups based on feeding mechanisms and tests for directional patterns in turbidity responses (ANCOMBC2 results).
+
+Key Question
+Do suspension feeding mechanisms predict sediment tolerance? Specifically, we test whether:
+- Fine Dead-End Microfilterers (FDM; sponges) decrease with turbidity (low sediment tolerance)
+- Active Dead-End Sieves (ADS; bivalves, barnacles) increase with turbidity (high sediment tolerance via particle rejection)
+
+Required Input Data
+1. **ANCOMBC2 results** from three fractions (All_Samples, Motile, Sessile):
+   - `env_results_family_all`
+   - `env_results_family_motile`
+   - `env_results_family_sessile`
+   
+2. **Functional trait data** (`trait_data_v4`):
+   - Must contain columns: `accepted_family`, `nutritional_strategy`, `phyllum`
+   - Nutritional strategies use standardized abbreviations (e.g., FDM, ADS, WCP)
+
+3. **Output directory** (optional): Set `output_dir` for saving results, defaults to current directory
+
+What This Code Does
+1. **Data preparation**: Cleans trait data, expands abbreviations, merges with ANCOMBC2 results
+2. **Functional classification**: Creates binary indicators for 6 suspension feeder mechanisms + other feeding strategies
+3. **Statistical analysis**: Calculates mean log-fold changes by functional group, tests against zero
+4. **Visualization**: Generates figures with custom color schemes
+5. **Export**: Saves summary tables (CSV) and figures (PDF)
+
+Important Notes
+- Analysis focuses on **All_Samples fraction** for main results (concordant with COI dataset)
+- Functional groups with n<2 families are excluded from statistical tests (insufficient power)
+- One photoautotroph outlier (Dumontiaceae, LFC=+1.09) is robust but idiosyncratic
+- Large error bars reflect genuine ecological heterogeneity within functional groups, not statistical weakness
+
+Output Files
+- `functional_group_summary.csv` - Statistics for all functional groups
+- `suspension_mechanism_summary.csv` - Detailed suspension feeder results
+- `photoautotroph_subgroups.csv` - Coralline vs. non-coralline patterns
+- `functional_groups_all.pdf` - Main figure showing all groups
+- `suspension_mechanisms.pdf` - Detailed suspension feeder figure
+- `fdm_vs_ads.pdf` - Key prediction test visualization
+- `functional_analysis_combined.pdf` - Combined multipanel figure
+```{r}
+# ============ 1. LOAD AND PREPARE DATA ============
+
+# Load trait data 
+#trait_data_v4 <- read.csv("/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/trait_mapping_QC_v4.csv", stringsAsFactors = FALSE)
+
+# Set output directory
+#if(!exists("output_dir")) output_dir <- "/Users/nicolepittoors/Documents/Documents - biscaya/Bioinformatics/ARMS_18S_LULU/FINAL_18S_Pipeline/Taxa_Output_18S"
+
+
+#library(dplyr)
+#library(tidyr)
+#library(stringr)
+#library(ggplot2)
+#library(patchwork)
+
+# ============ PART 1: DATA PREPARATION ============
+
+# 1.1: Clean trait data and expand abbreviations
+abbr_to_full <- c(
+  "DEP" = "Deposit_Feeder", "PHOT" = "Photoautotroph",
+  "FDM" = "Fine_Dead_End_Microfilterer", "PRED" = "Predator",
+  "SCAV" = "Scavenger", "ADS" = "Active_Dead-End_Sieve",
+  "WCP" = "Weak_Ciliary_Pumper", "GRAZ" = "Grazer",
+  "TPC" = "Truly_Passive_Collectors", "RNM" = "Renewable_Mucus_Net",
+  "SYBP" = "Symbiotic_Photosynthesis", "RCF" = "Ram/Crossflow"
+)
+
+full_to_abbr <- c(
+  "Deposit_Feeder" = "DEP", "Photoautotroph" = "PHOT",
+  "Fine_Dead_End_Microfilterer" = "FDM", "Predator" = "PRED",
+  "Scavenger" = "SCAV", "Active_Dead-End_Sieve" = "ADS",
+  "Weak_Ciliary_Pumper" = "WCP", "Grazer" = "GRAZ",
+  "Truly_Passive_Collectors" = "TPC", "Renewable_Mucus_Net" = "RNM",
+  "Symbiotic_Photosynthesis" = "SYBP", "Ram/Crossflow" = "RCF",
+  "Deposit_feeder" = "DEP", "Parasite" = "PARA",
+  "Chemolithoautototroph" = "CHEM", "Unknown" = "UNK"
+)
+
+# Expand abbreviations
+expand_strategy <- function(x) {
+  if(is.na(x) || x == "" || x == "Unknown") return("Unknown")
+  parts <- unlist(str_split(x, ";\\s*"))
+  expanded <- sapply(parts, function(p) {
+    if(p %in% names(abbr_to_full)) return(abbr_to_full[p])
+    gsub("_feeder", "_Feeder", gsub("_photosynthesis", "_Photosynthesis", p))
+  })
+  paste(expanded, collapse = ";")
+}
+
+create_abbr <- function(x) {
+  if(is.na(x) || x == "" || x == "Unknown") return("UNK")
+  parts <- unlist(str_split(x, ";\\s*"))
+  abbrs <- sapply(parts, function(p) {
+    if(p %in% names(full_to_abbr)) return(full_to_abbr[p])
+    return(toupper(substr(gsub("[^A-Za-z]", "", p), 1, 4)))
+  })
+  if(length(abbrs) > 1) paste(abbrs, collapse = "+") else abbrs[1]
+}
+
+# Add family_clean if missing
+if(!"family_clean" %in% names(trait_data_v4)) {
+  trait_data_v4 <- trait_data_v4 %>%
+    mutate(family_clean = tolower(trimws(accepted_family)))
+}
+
+# Apply cleaning
+trait_data_v4_cleaned <- trait_data_v4 %>%
+  mutate(
+    nutritional_strategy_full = sapply(nutritional_strategy, expand_strategy),
+    nutritional_strategy_abbr = sapply(nutritional_strategy_full, create_abbr),
+    primary_function = sapply(nutritional_strategy_full, function(x) {
+      str_trim(unlist(str_split(x, ";"))[1])
+    }),
+    primary_function_abbr = sapply(primary_function, function(x) {
+      if(x %in% names(full_to_abbr)) full_to_abbr[x] else "UNK"
+    })
+  )
+
+# 1.2: Load and combine ANCOM-BC2 results from all fractions
+env_results_all <- env_results_family_all %>%
+  mutate(
+    Fraction = "All_Samples",
+    diff_turbidity_logical = as.logical(diff_turbidity_std_rank),
+    passed_ss_logical = as.logical(passed_ss_turbidity_std_rank)
+  )
+
+env_results_motile_df <- env_results_family_motile %>%
+  mutate(
+    Fraction = "Motile",
+    diff_turbidity_logical = as.logical(diff_turbidity_std_rank),
+    passed_ss_logical = as.logical(passed_ss_turbidity_std_rank)
+  )
+
+env_results_sessile_df <- env_results_family_sessile %>%
+  mutate(
+    Fraction = "Sessile", 
+    diff_turbidity_logical = as.logical(diff_turbidity_std_rank),
+    passed_ss_logical = as.logical(passed_ss_turbidity_std_rank)
+  )
+
+full_ancom_results <- rbind(
+  env_results_all, env_results_motile_df, env_results_sessile_df
+) %>%
+  dplyr::select(
+    Taxon = taxon, Fraction,
+    Log_Fold_Change = lfc_turbidity_std_rank,
+    P_value = p_turbidity_std_rank,
+    Q_value = q_turbidity_std_rank,
+    Is_Significant = diff_turbidity_logical,
+    Robust = passed_ss_logical
+  ) %>%
+  dplyr::mutate(
+    Is_Significant = ifelse(is.na(Is_Significant), FALSE, Is_Significant),
+    Robust = ifelse(is.na(Robust), FALSE, Robust),
+    Direction = case_when(
+      Log_Fold_Change > 0 ~ "Increases_with_turbidity",
+      Log_Fold_Change < 0 ~ "Decreases_with_turbidity",
+      TRUE ~ "No_change"
+    ),
+    family_clean = tolower(trimws(Taxon))
+  )
+
+# 1.3: Merge with trait data and add phylum
+# Remove duplicates from trait data (keep first occurrence)
+trait_data_v4_cleaned_unique <- trait_data_v4_cleaned %>%
+  dplyr::distinct(family_clean, .keep_all = TRUE)
+
+functional_all_families <- full_ancom_results %>%
+  dplyr::left_join(trait_data_v4_cleaned_unique, by = "family_clean") %>%
+  dplyr::mutate(
+    final_phylum = coalesce(phyllum, case_when(
+      str_detect(tolower(Taxon), "rhodophyta") ~ "Rhodophyta",
+      str_detect(tolower(Taxon), "porifera") ~ "Porifera",
+      str_detect(tolower(Taxon), "bryozoa") ~ "Bryozoa",
+      str_detect(tolower(Taxon), "cnidaria") ~ "Cnidaria",
+      str_detect(tolower(Taxon), "annelida") ~ "Annelida",
+      str_detect(tolower(Taxon), "arthropoda") ~ "Arthropoda",
+      str_detect(tolower(Taxon), "mollusca") ~ "Mollusca",
+      str_detect(tolower(Taxon), "chordata") ~ "Chordata",
+      TRUE ~ "Other"
+    ))
+  )
+
+# ============ PART 2: CREATE FUNCTIONAL INDICATORS ============
+
+functional_dataset <- functional_all_families %>%
+  mutate(
+    # Suspension feeders (6 mechanistic categories)
+    is_FDM = case_when(
+      str_detect(nutritional_strategy_full, "Fine_Dead_End_Microfilterer") ~ 1,
+      final_phylum == "Porifera" ~ 1, TRUE ~ 0
+    ),
+    is_ADS = case_when(
+      str_detect(nutritional_strategy_full, "Active_Dead-End_Sieve") ~ 1, TRUE ~ 0
+    ),
+    is_WCP = case_when(
+      str_detect(nutritional_strategy_full, "Weak_Ciliary_Pumper") ~ 1,
+      final_phylum == "Bryozoa" ~ 1, TRUE ~ 0
+    ),
+    is_TPC = case_when(
+      str_detect(nutritional_strategy_full, "Truly_Passive_Collectors") ~ 1, TRUE ~ 0
+    ),
+    is_RNM = case_when(
+      str_detect(nutritional_strategy_full, "Renewable_Mucus_Net") ~ 1, TRUE ~ 0
+    ),
+    is_RCF = case_when(
+      str_detect(nutritional_strategy_full, "Ram/Crossflow") ~ 1, TRUE ~ 0
+    ),
+    is_any_suspension = case_when(
+      is_FDM == 1 | is_ADS == 1 | is_WCP == 1 | 
+      is_TPC == 1 | is_RNM == 1 | is_RCF == 1 ~ 1, TRUE ~ 0
+    ),
+    
+    # Other feeding strategies
+    is_deposit_feeder = case_when(
+      str_detect(nutritional_strategy_full, "Deposit_Feeder") ~ 1, TRUE ~ 0
+    ),
+    is_predator = case_when(
+      str_detect(nutritional_strategy_full, "Predator") ~ 1, TRUE ~ 0
+    ),
+    is_photoautotroph = case_when(
+      str_detect(nutritional_strategy_full, "Photoautotroph") ~ 1,
+      final_phylum == "Rhodophyta" ~ 1, TRUE ~ 0
+    ),
+    is_grazer = case_when(
+      str_detect(nutritional_strategy_full, "Grazer") ~ 1, TRUE ~ 0
+    ),
+    is_scavenger = case_when(
+      str_detect(nutritional_strategy_full, "Scavenger") ~ 1, TRUE ~ 0
+    ),
+    is_parasite = case_when(
+      str_detect(nutritional_strategy_full, "Parasite") ~ 1, TRUE ~ 0
+    )
+  )
+
+# ============ PART 3: STATISTICAL ANALYSIS ============
+
+# 3.1: Summary statistics by functional group
+functional_group_summary <- functional_dataset %>%
+  filter(as.logical(Is_Significant), Fraction == "All_Samples") %>%
+  group_by(primary_function_abbr) %>%
+  summarise(
+    n_families = n(),
+    mean_lfc = mean(Log_Fold_Change),
+    median_lfc = median(Log_Fold_Change),
+    sd_lfc = sd(Log_Fold_Change),
+    se_lfc = sd_lfc / sqrt(n_families),
+    n_increase = sum(Direction == "Increases_with_turbidity"),
+    n_decrease = sum(Direction == "Decreases_with_turbidity"),
+    percent_decrease = round(n_decrease / n_families * 100, 1),
+    # One-sample t-test against zero
+    t_stat = ifelse(n_families > 1, mean_lfc / se_lfc, NA),
+    p_value = ifelse(n_families > 1, 
+                     2 * pt(-abs(t_stat), df = n_families - 1), NA),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(primary_function_abbr), primary_function_abbr != "UNK", n_families >= 2) %>%
+  arrange(desc(mean_lfc))
+
+# 3.2: Suspension feeder detailed analysis
+suspension_summary <- functional_dataset %>%
+  dplyr::filter(as.logical(Is_Significant), Fraction == "All_Samples") %>%
+  dplyr::select(Taxon, Log_Fold_Change, Direction, final_phylum,
+         is_FDM, is_ADS, is_WCP, is_TPC, is_RNM, is_RCF) %>%
+  pivot_longer(cols = c(is_FDM, is_ADS, is_WCP, is_TPC, is_RNM, is_RCF),
+               names_to = "suspension_type", values_to = "has_type") %>%
+  dplyr::filter(has_type == 1) %>%
+  dplyr::mutate(
+    Suspension_Abbr = case_when(
+      suspension_type == "is_FDM" ~ "FDM",
+      suspension_type == "is_ADS" ~ "ADS",
+      suspension_type == "is_WCP" ~ "WCP",
+      suspension_type == "is_TPC" ~ "TPC",
+      suspension_type == "is_RNM" ~ "RNM",
+      suspension_type == "is_RCF" ~ "RCF"
+    )
+  ) %>%
+  group_by(Suspension_Abbr) %>%
+  summarise(
+    n = n(),
+    mean_lfc = mean(Log_Fold_Change),
+    se_lfc = sd(Log_Fold_Change) / sqrt(n),
+    n_decrease = sum(Direction == "Decreases_with_turbidity"),
+    percent_decrease = round(n_decrease / n * 100, 1),
+    .groups = "drop"
+  )
+
+# 3.3: Photoautotroph subgroup analysis
+photoautotroph_analysis <- functional_dataset %>%
+  dplyr::filter(is_photoautotroph == 1, as.logical(Is_Significant), 
+         Fraction == "All_Samples") %>%
+  dplyr::mutate(
+    is_coralline = Taxon %in% c("Hapalidiaceae", "Mesophyllumaceae", 
+                                "Lithophyllaceae", "Corallinaceae")
+  ) %>%
+  group_by(is_coralline) %>%
+  summarise(
+    n = n(),
+    mean_lfc = mean(Log_Fold_Change),
+    se_lfc = sd(Log_Fold_Change) / sqrt(n),
+    .groups = "drop"
+  )
+
+# ============ PART 4: VISUALIZATION ============
+
+# Color schemes
+phylum_color_map <- c(
+  "Annelida" = "#60714E", "Arthropoda" = "#3B8C6E", 
+  "Bryozoa" = "#5BBFB0", "Chordata" = "#408BA8",
+  "Cnidaria" = "#594A9E", "Echinodermata" = "#A8B1D6",
+  "Mollusca" = "#F69B9C", "Rhodophyta" = "#F16363",
+  "Porifera" = "#F68C30", "Unknown" = "grey40"
+)
+
+suspension_colors <- c(
+  "FDM" = "#F68C30", "ADS" = "#3B8C6E", "WCP" = "#5BBFB0",
+  "TPC" = "#A8B1D6", "RNM" = "#408BA8", "RCF" = "#408BA8"
+)
+
+direction_colors <- c(
+  "Increases_with_turbidity" = "#3B8C6E",
+  "Decreases_with_turbidity" = "#F68C30"
+)
+
+# 4.1: Main functional groups plot
+sig_functional_all <- functional_dataset %>%
+  dplyr::filter(as.logical(Is_Significant), Fraction == "All_Samples")
+
+plot_functional_groups <- functional_group_summary %>%
+  mutate(
+    Group_Type = ifelse(primary_function_abbr %in% c("FDM", "ADS", "WCP", "TPC", "RNM", "RCF"),
+                       "Suspension Feeder", "Other")
+  ) %>%
+  ggplot(aes(x = reorder(primary_function_abbr, mean_lfc), 
+             y = mean_lfc, fill = Group_Type)) +
+  geom_col(width = 0.7, color = "black", size = 0.3) +
+  geom_errorbar(aes(ymin = mean_lfc - se_lfc, 
+                    ymax = mean_lfc + se_lfc),
+                width = 0.3, size = 0.5) +
+  geom_text(aes(label = paste0("n=", n_families)), 
+            hjust = ifelse(functional_group_summary$mean_lfc > 0, -0.3, 1.3),
+            size = 3.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  scale_fill_manual(values = c("Suspension Feeder" = "#56B4E9", "Other" = "#E69F00")) +
+  labs(title = "Functional Group Responses to Turbidity",
+       x = "Functional Group", y = "Mean Log-Fold Change",
+       fill = "Group Type") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+# 4.2: Suspension feeders detailed
+suspension_long <- functional_dataset %>%
+  dplyr::filter(as.logical(Is_Significant), Fraction == "All_Samples") %>%
+  dplyr::select(Taxon, Log_Fold_Change, Direction, is_FDM, is_ADS, is_WCP, 
+         is_TPC, is_RNM, is_RCF) %>%
+  pivot_longer(cols = c(is_FDM, is_ADS, is_WCP, is_TPC, is_RNM, is_RCF),
+               names_to = "type", values_to = "has") %>%
+  dplyr::filter(has == 1) %>%
+  dplyr::mutate(Category = gsub("is_", "", type))
+
+plot_suspension <- suspension_long %>%
+  left_join(suspension_summary, by = c("Category" = "Suspension_Abbr")) %>%
+  ggplot(aes(x = reorder(Category, mean_lfc), y = mean_lfc, fill = Category)) +
+  geom_col(width = 0.7, color = "black") +
+  geom_errorbar(aes(ymin = mean_lfc - se_lfc, ymax = mean_lfc + se_lfc),
+                width = 0.3) +
+  geom_text(aes(label = paste0("n=", n)), vjust = -0.5, size = 4) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  scale_fill_manual(values = suspension_colors) +
+  labs(title = "Suspension Feeder Mechanisms",
+       x = NULL, y = "Mean Log-Fold Change") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+# 4.3: FDM vs ADS comparison
+plot_fdm_ads <- suspension_long %>%
+  dplyr::filter(Category %in% c("FDM", "ADS")) %>%
+  ggplot(aes(x = Category, y = Log_Fold_Change, fill = Category)) +
+  geom_violin(alpha = 0.3) +
+  geom_jitter(aes(color = Direction), width = 0.2, size = 2.5, alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = suspension_colors) +
+  scale_color_manual(values = direction_colors) +
+  labs(title = "FDM vs ADS: Key Prediction Test",
+       x = NULL, y = "Log-Fold Change") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom") +
+  guides(fill = "none")
+
+# Save plots
+ggsave(file.path(output_dir,"functional_groups_all.pdf"), plot_functional_groups, 
+       width = 10, height = 8, dpi = 300)
+ggsave(file.path(output_dir, "suspension_mechanisms.pdf"), plot_suspension, 
+       width = 8, height = 6, dpi = 300)
+ggsave(file.path(output_dir,"fdm_vs_ads.pdf"), plot_fdm_ads, 
+       width = 6, height = 6, dpi = 300)
+
+# Combined figure
+combined <- (plot_suspension / plot_fdm_ads) | plot_functional_groups
+ggsave(file.path(output_dir,"functional_analysis_combined.pdf"), combined, 
+       width = 14, height = 10, dpi = 300)
+
+# ============ PART 5: EXPORT RESULTS ============
+
+write.csv(functional_group_summary, file.path(output_dir, "functional_group_summary.csv"), row.names = FALSE)
+write.csv(suspension_summary, file.path(output_dir, "suspension_mechanism_summary.csv"), row.names = FALSE)
+write.csv(photoautotroph_analysis, file.path(output_dir, "photoautotroph_subgroups.csv"), row.names = FALSE)
+
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("Functional groups analyzed:", nrow(functional_group_summary), "\n")
+cat("Suspension mechanisms tested:", nrow(suspension_summary), "\n")
+cat("Results exported to CSV files and PDF figures\n")
+```
+
+
+```{r vertical phylum LFC plots, all fractions}
+
+library(ggplot2)
+library(dplyr)
+
+cat("=== CREATING CLEAN PHYLUM LFC PLOTS ===\n\n")
+
+# Get phylum-level turbidity effects
+phylum_turb <- all_environmental_significant %>%
+  filter(Taxonomic_Level == "Phylum" & Environmental_Variable == "Turbidity")
+
+# Custom colors
+color_increase <- "#3B8C6E"  # Green for increases
+color_decrease <- "#F68C30"  # Orange for decreases
+
+# ALL SAMPLES
+all_phyla <- phylum_turb %>%
+  filter(Fraction == "All_Samples") %>%
+  arrange(Log_Fold_Change) %>%
+  mutate(
+    Phylum_ordered = factor(Taxon, levels = Taxon),
+    Direction = ifelse(Log_Fold_Change > 0, "Increases_with_turbidity", "Decreases_with_turbidity")
+  )
+
+if(nrow(all_phyla) > 0) {
+  cat("\n=== ALL SAMPLES ===\n")
+  cat("Phyla found:", nrow(all_phyla), "\n")
+  print(all_phyla %>% select(Taxon, Log_Fold_Change, Q_value, Robust))
+  
+  p_all <- ggplot(all_phyla, aes(x = Phylum_ordered, y = Log_Fold_Change, fill = Direction)) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+    geom_bar(stat = "identity", color = "black", linewidth = 0.3, width = 0.7) +
+    scale_fill_manual(
+      values = c(
+        "Increases_with_turbidity" = color_increase,
+        "Decreases_with_turbidity" = color_decrease
+      ),
+      name = "",
+      labels = c("Decreases with turbidity", "Increases with turbidity")
+    ) +
+    labs(
+      title = "All fractions",
+      x = "",
+      y = "Log₂ Fold Change"
+    ) +
+    coord_flip() +  # VERTICAL PLOT
+    theme_minimal(base_size = 11) +
+    theme(
+      # All text black
+      text = element_text(color = "black"),
+      axis.text = element_text(color = "black", size = 10),
+      axis.title = element_text(color = "black", size = 11, face = "bold"),
+      plot.title = element_text(color = "black", size = 12, face = "bold", hjust = 0.5),
+      legend.text = element_text(color = "black", size = 9),
+      
+      # Remove gridlines
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      
+      # White background
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      
+      # Add axis lines
+      axis.line = element_line(color = "black", linewidth = 0.5),
+      
+      # Legend
+      legend.position = "bottom",
+      legend.background = element_rect(fill = "white", color = "black", linewidth = 0.3),
+      legend.key.size = unit(0.5, "cm")
+    )
+  
+  print(p_all)
+  
+  ggsave("Phylum_LFC_All_Clean_18S.pdf", p_all, width = 7, height = 5, dpi = 300)
+  ggsave("Phylum_LFC_All_Clean_18S.png", p_all, width = 7, height = 5, dpi = 600)
+  
+  cat("\n✓ All fractions plot saved\n")
+}
+
+# MOTILE
+motile_phyla <- phylum_turb %>%
+  filter(Fraction == "Motile") %>%
+  arrange(Log_Fold_Change) %>%
+  mutate(
+    Phylum_ordered = factor(Taxon, levels = Taxon),
+    Direction = ifelse(Log_Fold_Change > 0, "Increases_with_turbidity", "Decreases_with_turbidity")
+  )
+
+if(nrow(motile_phyla) > 0) {
+  cat("\n=== MOTILE ===\n")
+  cat("Phyla found:", nrow(motile_phyla), "\n")
+  print(motile_phyla %>% select(Taxon, Log_Fold_Change, Q_value, Robust))
+  
+  p_motile <- ggplot(motile_phyla, aes(x = Phylum_ordered, y = Log_Fold_Change, fill = Direction)) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+    geom_bar(stat = "identity", color = "black", linewidth = 0.3, width = 0.7) +
+    scale_fill_manual(
+      values = c(
+        "Increases_with_turbidity" = color_increase,
+        "Decreases_with_turbidity" = color_decrease
+      ),
+      name = "",
+      labels = c("Decreases with turbidity", "Increases with turbidity")
+    ) +
+    labs(
+      title = "Motile fraction",
+      x = "",
+      y = "Log₂ Fold Change"
+    ) +
+    coord_flip() +  # VERTICAL PLOT
+    theme_minimal(base_size = 11) +
+    theme(
+      # All text black
+      text = element_text(color = "black"),
+      axis.text = element_text(color = "black", size = 10),
+      axis.title = element_text(color = "black", size = 11, face = "bold"),
+      plot.title = element_text(color = "black", size = 12, face = "bold", hjust = 0.5),
+      legend.text = element_text(color = "black", size = 9),
+      
+      # Remove gridlines
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      
+      # Add axis lines
+      axis.line = element_line(color = "black", linewidth = 0.5),
+      
+      # Legend
+      legend.position = "bottom",
+      legend.key.size = unit(0.5, "cm")
+    )
+  
+  print(p_motile)
+  
+  ggsave("Phylum_LFC_Motile_Clean_18S.pdf", p_motile, width = 7, height = 5, dpi = 300)
+  ggsave("Phylum_LFC_Motile_Clean_18S.png", p_motile, width = 7, height = 5, dpi = 600)
+  
+  cat("\n✓ Motile plot saved\n")
+}
+
+# SESSILE
+sessile_phyla <- phylum_turb %>%
+  filter(Fraction == "Sessile") %>%
+  arrange(Log_Fold_Change) %>%
+  mutate(
+    Phylum_ordered = factor(Taxon, levels = Taxon),
+    Direction = ifelse(Log_Fold_Change > 0, "Increases_with_turbidity", "Decreases_with_turbidity")
+  )
+
+if(nrow(sessile_phyla) > 0) {
+  cat("\n=== SESSILE ===\n")
+  cat("Phyla found:", nrow(sessile_phyla), "\n")
+  print(sessile_phyla %>% select(Taxon, Log_Fold_Change, Q_value, Robust))
+  
+  p_sessile <- ggplot(sessile_phyla, aes(x = Phylum_ordered, y = Log_Fold_Change, fill = Direction)) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+    geom_bar(stat = "identity", color = "black", linewidth = 0.3, width = 0.7) +
+    scale_fill_manual(
+      values = c(
+        "Increases_with_turbidity" = color_increase,
+        "Decreases_with_turbidity" = color_decrease
+      ),
+      name = "",
+      labels = c("Decreases with turbidity", "Increases with turbidity")
+    ) +
+    labs(
+      title = "Sessile fraction",
+      x = "",
+      y = "Log₂ Fold Change"
+    ) +
+    coord_flip() +  # VERTICAL PLOT
+    theme_minimal(base_size = 11) +
+    theme(
+      # All text black
+      text = element_text(color = "black"),
+      axis.text = element_text(color = "black", size = 10),
+      axis.title = element_text(color = "black", size = 11, face = "bold"),
+      plot.title = element_text(color = "black", size = 12, face = "bold", hjust = 0.5),
+      legend.text = element_text(color = "black", size = 9),
+      
+      # Remove gridlines
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      
+      # White background
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      
+      # Add axis lines
+      axis.line = element_line(color = "black", linewidth = 0.5),
+      
+      # Legend
+      legend.position = "bottom",
+      legend.background = element_rect(fill = "white", color = "black", linewidth = 0.3),
+      legend.key.size = unit(0.5, "cm")
+    )
+  
+  print(p_sessile)
+  
+  ggsave("Phylum_LFC_Sessile_Clean_18S.pdf", p_sessile, width = 7, height = 5, dpi = 300)
+  ggsave("Phylum_LFC_Sessile_Clean_18S.png", p_sessile, width = 7, height = 5, dpi = 600)
+  
+  cat("\n✓ Sessile plot saved\n")
+}
+
+# SUMMARY
+cat("\n==========================================\n")
+cat("CLEAN PHYLUM LFC PLOTS COMPLETE!\n")
+cat("==========================================\n\n")
+
+cat("Files created:\n")
+if(exists("p_all")) cat("1. Phylum_LFC_All_Clean_18S.pdf (All fractions)\n")
+if(exists("p_motile")) cat("2. Phylum_LFC_Motile_Clean_18S.pdf (Motile)\n")
+if(exists("p_sessile")) cat("3. Phylum_LFC_Sessile_Clean_18S.pdf (Sessile)\n")
+```
+
+# COMBINED 18S + COI PHYLUM LFC PLOTS
+Creates vertical plots with slashed lines for COI bars
+Run this in your 18S R window AFTER exporting COI data
+```{r COMBINED 18S + COI PHYLUM LFC PLOTS}
+#library(ggplot2)
+#library(dplyr)
+#library(ggpattern)  # For patterned bars
+
+cat("=== CREATING COMBINED 18S + COI PLOTS ===\n\n")
+
+# Load 18S phylum data (already in environment)
+phylum_turb_18S <- all_environmental_significant %>%
+  filter(Taxonomic_Level == "Phylum" & Environmental_Variable == "Turbidity") %>%
+  mutate(Dataset = "18S rRNA")
+
+# Load COI phylum data (exported from COI window)
+phylum_turb_COI <- read.csv("COI_phylum_turbidity_simple.csv")
+
+cat("18S phyla:", nrow(phylum_turb_18S), "\n")
+cat("COI phyla:", nrow(phylum_turb_COI), "\n\n")
+
+# Combine both datasets
+combined_phylum <- rbind(
+  phylum_turb_18S %>% select(Fraction, Taxon, Log_Fold_Change, Q_value, Robust, Direction, Dataset),
+  phylum_turb_COI
+)
+
+# Custom colors
+color_increase <- "#3B8C6E"  # Green
+color_decrease <- "#F68C30"  # Orange
+
+# FUNCTION TO CREATE COMBINED PLOT
+create_combined_plot <- function(data, fraction_name) {
+  
+  # Filter to specific fraction
+  frac_data <- data %>%
+    filter(Fraction == fraction_name) %>%
+    arrange(Dataset, Log_Fold_Change) %>%
+    mutate(
+      # Create a unique ID for each phylum-dataset combination
+      Phylum_Dataset = paste0(Taxon, " (", Dataset, ")"),
+      Phylum_Dataset_ordered = factor(Phylum_Dataset, levels = unique(Phylum_Dataset)),
+      # Simplify direction names
+      Direction_simple = ifelse(grepl("Increase", Direction), "Increases_with_turbidity", "Decreases_with_turbidity"),
+      # Pattern: solid for 18S, slashed for COI
+      Pattern_type = ifelse(Dataset == "18S rRNA", "none", "stripe")
+    )
+  
+  if(nrow(frac_data) == 0) {
+    cat("No data for", fraction_name, "\n")
+    return(NULL)
+  }
+  
+  cat("\n", fraction_name, ":\n", sep = "")
+  cat("  Total entries:", nrow(frac_data), "\n")
+  cat("  18S phyla:", sum(frac_data$Dataset == "18S rRNA"), "\n")
+  cat("  COI phyla:", sum(frac_data$Dataset == "COI"), "\n")
+  
+  # Create plot with ggpattern
+  p <- ggplot(frac_data, aes(x = Phylum_Dataset_ordered, y = Log_Fold_Change, 
+                             fill = Direction_simple, pattern = Pattern_type)) +
+    
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+    
+    # Use geom_bar_pattern for patterned bars
+    ggpattern::geom_bar_pattern(
+      stat = "identity",
+      color = "black",
+      linewidth = 0.3,
+      width = 0.7,
+      pattern_fill = "black",
+      pattern_angle = 45,
+      pattern_density = 0.1,
+      pattern_spacing = 0.025,
+      pattern_key_scale_factor = 0.6
+    ) +
+    
+    scale_pattern_manual(values = c("none" = "none", "stripe" = "stripe"), guide = "none") +
+    
+    scale_fill_manual(
+      values = c(
+        "Increases_with_turbidity" = color_increase,
+        "Decreases_with_turbidity" = color_decrease
+      ),
+      name = "",
+      labels = c("Decreases with turbidity", "Increases with turbidity")
+    ) +
+    
+    labs(
+      title = paste0(fraction_name, " fraction - 18S rRNA + COI"),
+      subtitle = "Solid bars = 18S rRNA; Striped bars = COI",
+      x = "",
+      y = "Log₂ Fold Change"
+    ) +
+    
+    coord_flip() +
+    
+    theme_minimal(base_size = 11) +
+    theme(
+      # All text black
+      text = element_text(color = "black"),
+      axis.text = element_text(color = "black", size = 9),
+      axis.title = element_text(color = "black", size = 11, face = "bold"),
+      plot.title = element_text(color = "black", size = 12, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(color = "black", size = 9, hjust = 0.5),
+      legend.text = element_text(color = "black", size = 9),
+      
+      # Remove gridlines
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      
+      # White background
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      
+      # Axis lines
+      axis.line = element_line(color = "black", linewidth = 0.5),
+      
+      # Legend
+      legend.position = "bottom",
+      legend.background = element_rect(fill = "white", color = "black", linewidth = 0.3)
+    )
+  
+  return(list(plot = p, data = frac_data))
+}
+
+# Create plots for each fraction
+cat("\n=== CREATING PLOTS ===\n")
+
+# ALL SAMPLES
+all_result <- create_combined_plot(combined_phylum, "All_Samples")
+if(!is.null(all_result)) {
+  print(all_result$plot)
+  ggsave("Combined_18S_COI_Phylum_All.pdf", all_result$plot, width = 8, height = 7, dpi = 300)
+  ggsave("Combined_18S_COI_Phylum_All.png", all_result$plot, width = 8, height = 7, dpi = 600)
+  cat("✓ All samples saved\n")
+}
+
+# MOTILE
+motile_result <- create_combined_plot(combined_phylum, "Motile")
+if(!is.null(motile_result)) {
+  print(motile_result$plot)
+  ggsave("Combined_18S_COI_Phylum_Motile.pdf", motile_result$plot, width = 8, height = 7, dpi = 300)
+  ggsave("Combined_18S_COI_Phylum_Motile.png", motile_result$plot, width = 8, height = 7, dpi = 600)
+  cat("✓ Motile saved\n")
+}
+
+# SESSILE
+sessile_result <- create_combined_plot(combined_phylum, "Sessile")
+if(!is.null(sessile_result)) {
+  print(sessile_result$plot)
+  ggsave("Combined_18S_COI_Phylum_Sessile.pdf", sessile_result$plot, width = 8, height = 7, dpi = 300)
+  ggsave("Combined_18S_COI_Phylum_Sessile.png", sessile_result$plot, width = 8, height = 7, dpi = 600)
+  cat("✓ Sessile saved\n")
+}
+
+# Save combined data for reference
+write.csv(combined_phylum, "Combined_18S_COI_phylum_data.csv", row.names = FALSE)
+```
+
+
+
+# --------------- EXPLORATORY POST-HOC ANALYSIS: PHOTOAUTOTROPH SUBGROUPS --------------
+```{r photoautotroph exploration}
+# Define coralline families (calcified crustose forms)
+coralline_families <- c("Hapalidiaceae", "Mesophyllumaceae", "Lithophyllaceae", 
+                        "Corallinaceae", "Sporolithaceae")
+
+# Create subgroup classification
+photoautotroph_subgroups <- functional_dataset %>%
+  filter(is_photoautotroph == 1, as.logical(Is_Significant), 
+         Fraction == "All_Samples") %>%
+  mutate(
+    algal_subgroup = case_when(
+      Taxon %in% coralline_families ~ "Coralline_Algae",
+      TRUE ~ "Fleshy_Algae"
+    )
+  )
+
+# Calculate subgroup statistics
+subgroup_stats <- photoautotroph_subgroups %>%
+  group_by(algal_subgroup) %>%
+  summarise(
+    n_families = n(),
+    mean_lfc = mean(Log_Fold_Change),
+    median_lfc = median(Log_Fold_Change),
+    sd_lfc = sd(Log_Fold_Change),
+    se_lfc = sd_lfc / sqrt(n_families),
+    n_increase = sum(Direction == "Increases_with_turbidity"),
+    n_decrease = sum(Direction == "Decreases_with_turbidity"),
+    percent_decrease = round(n_decrease / n_families * 100, 1),
+    .groups = "drop"
+  )
+
+cat("=== EXPLORATORY SUBGROUP ANALYSIS ===\n")
+print(subgroup_stats)
+
+# Statistical comparison between subgroups
+welch_test <- t.test(
+  Log_Fold_Change ~ algal_subgroup,
+  data = photoautotroph_subgroups
+)
+
+cat("\nWelch's t-test (Coralline vs Fleshy):\n")
+cat("t =", round(welch_test$statistic, 3), "\n")
+cat("df =", round(welch_test$parameter, 2), "\n")
+cat("p-value =", format.pval(welch_test$p.value, digits = 3), "\n")
+cat("Mean difference =", round(diff(welch_test$estimate), 3), "\n")
+
+# Test each subgroup against zero
+coralline_test <- t.test(
+  photoautotroph_subgroups %>% 
+    filter(algal_subgroup == "Coralline_Algae") %>% 
+    pull(Log_Fold_Change)
+)
+
+fleshy_test <- t.test(
+  photoautotroph_subgroups %>% 
+    filter(algal_subgroup == "Fleshy_Algae") %>% 
+    pull(Log_Fold_Change)
+)
+
+cat("\nOne-sample tests (against zero):\n")
+cat("Coralline: t =", round(coralline_test$statistic, 3), 
+    ", p =", format.pval(coralline_test$p.value, digits = 3), "\n")
+cat("Fleshy: t =", round(fleshy_test$statistic, 3), 
+    ", p =", format.pval(fleshy_test$p.value, digits = 3), "\n")
+
+# Create visualization
+subgroup_plot <- photoautotroph_subgroups %>%
+  ggplot(aes(x = algal_subgroup, y = Log_Fold_Change, fill = algal_subgroup)) +
+  geom_violin(alpha = 0.3, trim = TRUE) +
+  geom_jitter(aes(color = Direction), width = 0.2, size = 3, alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", size = 0.8) +
+  stat_summary(fun = mean, geom = "point", size = 4, shape = 23, 
+               fill = "black", color = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2, 
+               size = 1, color = "black") +
+  scale_fill_manual(values = c("Coralline_Algae" = "#F16363", 
+                               "Fleshy_Algae" = "#F69B9C")) +
+  scale_color_manual(values = c("Increases_with_turbidity" = "#3B8C6E",
+                                "Decreases_with_turbidity" = "#F68C30")) +
+  labs(
+    title = "Exploratory Post-Hoc Analysis: Photoautotroph Subgroups",
+    subtitle = paste0("Welch's t-test: p = ", 
+                     format.pval(welch_test$p.value, digits = 2)),
+    x = NULL,
+    y = "Log-Fold Change (Turbidity Effect)",
+    color = "Response Direction"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom") +
+  guides(fill = "none")
+
+print(subgroup_plot)
+
+# Export
+ggsave("photoautotroph_subgroup_exploratory.pdf", subgroup_plot, 
+       width = 8, height = 6, dpi = 300)
+```
+
+# FUNCTIONAL COMPOSITION ANALYSIS - UPDATED WITH MECHANISTIC CATEGORIES
+Uses revised 6 suspension feeder mechanisms + other functional groups
+```{r functional composition analysis}
+
+#library(dplyr)
+#library(ggplot2)
+#library(tidyr)
+#library(stringr)
+#library(phyloseq)
+#library(patchwork)
+
+# ============ SETUP: COLOR SCHEMES AND SITE ORDER ============
+
+# Site colors (unchanged)
+c12_sites <- c("Alderdice_deep1" = "#0E4077", "Alderdice_deep2" = "#0E4077",
+               "Alderdice_shallow" = "#9DC9D3", "Bright_deep1" = "#3B8C6E",
+               "Bright_deep2" = "#3B8C6E", "Bright_shallow" = "#B0DBBB",
+               "Diaphus_deep2" = "#996599", "Diaphus_deep1" = "#996599",
+               "EFGB_deep" = "#F68C30", "EFGB_shallow" = "#FEBC2C",
+               "McGrail_deep" = "#015951", "Stetson_shallow" = "#FF595E")
+
+# UPDATED: Functional group colors matching new categories
+functional_colors <- c(
+  "PHOT" = "#F16363",     # Photoautotrophs (Rhodophyta)
+  "FDM" = "#F68C30",      # Fine Dead-End Microfilterers (Porifera)
+  "ADS" = "#3B8C6E",      # Active Dead-End Sieves
+  "WCP" = "#5BBFB0",      # Weak Ciliary Pumpers (Bryozoa)
+  "TPC" = "#A8B1D6",      # Truly Passive Collectors
+  "RNM" = "#408BA8",      # Renewable Mucus Nets (Ascidians)
+  "RCF" = "#408BA8",      # Ram/Crossflow (fish)
+  "DEP" = "#60714E",      # Deposit Feeders
+  "PRED" = "#594A9E",     # Predators
+  "GRAZ" = "#F69B9C",     # Grazers
+  "SCAV" = "#C74238",     # Scavengers
+  "PARA" = "#812A5A",     # Parasites
+  "UNK" = "grey70"        # Unclassified
+)
+
+# Site order (high to low turbidity)
+turb_ordered_sites <- c("McGrail_deep", "EFGB_shallow", "Alderdice_shallow", 
+                        "Bright_shallow", "Diaphus_deep2", "EFGB_deep", 
+                        "Diaphus_deep1", "Bright_deep2", "Bright_deep1", 
+                        "Alderdice_deep1", "Stetson_shallow", "Alderdice_deep2")
+
+# ============ 1. USE CLEANED TRAIT DATA FROM PREVIOUS ANALYSIS ============
+
+# This assumes you've already run the main functional analysis
+# and have trait_data_v4_cleaned_unique available
+
+# If not, load and clean:
+if(!exists("trait_data_v4_cleaned_unique")) {
+  source("path_to_trait_cleaning_script.R")
+}
+
+# Create primary function using the updated classification
+functional_dataset_updated <- trait_data_v4_cleaned_unique %>%
+  mutate(
+    # Determine primary function based on trait and phylum
+    primary_function_abbr = case_when(
+      # Photoautotrophs first
+      str_detect(nutritional_strategy_full, "Photoautotroph") ~ "PHOT",
+      phyllum == "Rhodophyta" ~ "PHOT",  # Changed from final_phylum
+      
+      # Suspension feeders by mechanism
+      str_detect(nutritional_strategy_full, "Fine_Dead_End_Microfilterer") ~ "FDM",
+      phyllum == "Porifera" ~ "FDM",  # Changed from final_phylum
+      
+      str_detect(nutritional_strategy_full, "Active_Dead-End_Sieve") ~ "ADS",
+      
+      str_detect(nutritional_strategy_full, "Weak_Ciliary_Pumper") ~ "WCP",
+      phyllum == "Bryozoa" ~ "WCP",  # Changed from final_phylum
+      
+      str_detect(nutritional_strategy_full, "Truly_Passive_Collectors") ~ "TPC",
+      
+      str_detect(nutritional_strategy_full, "Renewable_Mucus_Net") ~ "RNM",
+      
+      str_detect(nutritional_strategy_full, "Ram/Crossflow") ~ "RCF",
+      
+      # Other feeding strategies
+      str_detect(nutritional_strategy_full, "Deposit_Feeder") ~ "DEP",
+      str_detect(nutritional_strategy_full, "Predator") ~ "PRED",
+      str_detect(nutritional_strategy_full, "Grazer") ~ "GRAZ",
+      str_detect(nutritional_strategy_full, "Scavenger") ~ "SCAV",
+      str_detect(nutritional_strategy_full, "Parasite") ~ "PARA",
+      
+      TRUE ~ "UNK"
+    )
+  )
+
+# ============ 2. EXTRACT AND PREPARE PHYLOSEQ DATA ============
+
+cat("Extracting data from phyloseq object...\n")
+
+family_site_abundances <- ancom_physeq %>%
+  tax_glom(taxrank = "family") %>%
+  psmelt() %>%
+  mutate(family_clean = tolower(trimws(family)))
+
+cat("Families found:", length(unique(family_site_abundances$family_clean)), "\n")
+
+# ============ 3. JOIN WITH FUNCTIONAL TRAITS ============
+
+functional_site_data <- family_site_abundances %>%
+  left_join(
+    functional_dataset_updated %>% 
+      dplyr::select(family_clean, primary_function_abbr) %>% 
+      distinct(),
+    by = "family_clean"
+  ) %>%
+  dplyr::mutate(
+    # Replace NA with UNK for unassigned families
+    primary_function_abbr = ifelse(is.na(primary_function_abbr), "UNK", primary_function_abbr)
+  )
+
+cat("Families with trait assignments:", 
+    sum(functional_site_data$primary_function_abbr != "UNK"), "/",
+    nrow(functional_site_data), "\n")
+
+# ============ 4. CALCULATE FUNCTIONAL COMPOSITION BY SITE ============
+
+functional_composition <- functional_site_data %>%
+  group_by(sitelocality, primary_function_abbr) %>%
+  dplyr::summarize(
+    turbidity_std_rank = first(turbidity_std_rank),
+    group_abundance = sum(Abundance),
+    .groups = "drop"
+  ) %>%
+  group_by(sitelocality) %>%
+  dplyr::mutate(
+    total_abundance = sum(group_abundance),
+    Proportion = group_abundance / total_abundance * 100
+  ) %>%
+  ungroup() %>%
+  dplyr::select(sitelocality, turbidity_std_rank, primary_function_abbr, Proportion) %>%
+  pivot_wider(names_from = primary_function_abbr, 
+              values_from = Proportion, 
+              values_fill = 0) %>%
+  rename(Site = sitelocality, Turbidity = turbidity_std_rank)
+
+# Verify proportions sum to 100%
+check_totals <- functional_composition %>%
+  dplyr::select(-Site, -Turbidity) %>%
+  rowSums()
+
+cat("All sites sum to 100%:", all(abs(check_totals - 100) < 0.01), "\n")
+
+# ============ 5. RESHAPE FOR PLOTTING ============
+
+composition_long <- functional_composition %>%
+  dplyr::select(-Turbidity) %>%
+  pivot_longer(cols = -Site, 
+               names_to = "Functional_Group", 
+               values_to = "Proportion") %>%
+  dplyr::filter(!is.na(Functional_Group), Functional_Group != "NA") %>%
+  dplyr::mutate(
+    Site = factor(Site, levels = turb_ordered_sites),
+    # Order groups: photoautotrophs, suspension feeders, then others
+    Functional_Group = factor(Functional_Group, 
+                             levels = c("PHOT", "FDM", "ADS", "WCP", "TPC", "RNM", "RCF",
+                                      "DEP", "PRED", "GRAZ", "SCAV", "PARA", "UNK"))
+  )
+
+# ============ 6. CREATE MULTI-PANEL FIGURE ============
+
+cat("\nGenerating figure panels...\n")
+
+# PANEL A: Stacked bar chart
+p1 <- ggplot(composition_long, aes(x = Site, y = Proportion, fill = Functional_Group)) +
+  geom_bar(stat = "identity", color = "white", size = 0.3) +
+  scale_fill_manual(values = functional_colors, 
+                   name = "Functional Group",
+                   labels = c("PHOT" = "Photoautotroph",
+                            "FDM" = "Fine Dead-End Microfilterer",
+                            "ADS" = "Active Dead-End Sieve",
+                            "WCP" = "Weak Ciliary Pumper",
+                            "TPC" = "Truly Passive Collector",
+                            "RNM" = "Renewable Mucus Net",
+                            "RCF" = "Ram/Crossflow",
+                            "DEP" = "Deposit Feeder",
+                            "PRED" = "Predator",
+                            "GRAZ" = "Grazer",
+                            "SCAV" = "Scavenger",
+                            "PARA" = "Parasite",
+                            "UNK" = "Unclassified")) +
+  scale_x_discrete(labels = function(x) gsub("_", "\n", x)) +
+  labs(x = NULL, y = "Relative Abundance (%)", 
+       title = "A) Functional Composition Across Turbidity Gradient") +
+  theme_classic(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    legend.position = "right",
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.4, "cm"),
+    plot.title = element_text(face = "bold", size = 11)
+  )
+
+# PANEL B: Functional richness vs turbidity
+functional_richness <- composition_long %>%
+  filter(Proportion > 1) %>%
+  mutate(Site = as.character(Site)) %>%  # Convert factor to character
+  group_by(Site) %>%
+  dplyr::summarize(Richness = n()) %>%
+  left_join(
+    functional_composition %>% 
+      mutate(Site = as.character(Site)) %>%  # Convert to character
+      dplyr::select(Site, Turbidity) %>%
+      dplyr::rename(Turbidity_value = Turbidity),
+    by = "Site"
+  ) %>%
+  dplyr::mutate(Site = factor(Site, levels = turb_ordered_sites))
+
+p2 <- ggplot(functional_richness, aes(x = Turbidity_value, y = Richness)) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", size = 0.8, alpha = 0.2) +
+  geom_point(aes(fill = Site), size = 4, shape = 21, color = "black") +
+  scale_fill_manual(values = c12_sites) +
+  scale_x_reverse(limits = c(12, 0)) +  # Reversed limits for reversed scale
+  labs(x = "Turbidity (NTU)", y = "Functional Group Richness",
+       title = "B) Functional Diversity Decline") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", size = 11))
+
+# PANEL C - with character conversion
+key_groups <- composition_long %>%
+  filter(Functional_Group %in% c("FDM", "ADS", "PHOT")) %>%
+  mutate(Site = as.character(Site)) %>%
+  left_join(
+    functional_composition %>% 
+      mutate(Site = as.character(Site)) %>%
+      dplyr::select(Site, Turbidity) %>%
+      dplyr::rename(Turbidity_value = Turbidity),
+    by = "Site"
+  )
+
+p3 <- ggplot(key_groups, aes(x = Turbidity_value, y = Proportion, color = Functional_Group)) +
+  geom_smooth(method = "loess", se = TRUE, alpha = 0.2, size = 1) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_manual(values = functional_colors, 
+                     name = "Functional Group",
+                     labels = c("FDM" = "FDM (Sponges)",
+                              "ADS" = "ADS (Bivalves/Barnacles)",
+                              "PHOT" = "Photoautotrophs")) +
+  scale_x_reverse(limits = c(12, 0)) +  # Corrected
+  labs(x = "Turbidity (NTU)", y = "Relative Abundance (%)",
+       title = "C) Key Groups: Predicted vs Observed") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold", size = 11))
+
+# PANEL D - with character conversion
+functional_shannon <- composition_long %>%
+  mutate(Site = as.character(Site)) %>%
+  group_by(Site) %>%
+  mutate(p = Proportion / 100) %>%
+  dplyr::summarize(Shannon = -sum(p * log(p + 1e-10), na.rm = TRUE)) %>%
+  left_join(
+    functional_composition %>% 
+      mutate(Site = as.character(Site)) %>%
+      dplyr::select(Site, Turbidity) %>%
+      dplyr::rename(Turbidity_value = Turbidity),
+    by = "Site"
+  ) %>%
+  mutate(Site = factor(Site, levels = turb_ordered_sites))
+
+p4 <- ggplot(functional_shannon, aes(x = Turbidity_value, y = Shannon)) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", size = 0.8, alpha = 0.2) +
+  geom_point(aes(fill = Site), size = 4, shape = 21, color = "black") +
+  scale_fill_manual(values = c12_sites) +
+  scale_x_reverse(limits = c(12, 0)) +  # Corrected
+  labs(x = "Turbidity (NTU)", y = "Shannon Diversity (H')",
+       title = "D) Functional Evenness Loss") +
+  theme_classic(base_size = 11) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", size = 11))
+
+
+# Now combine and print
+combined_figure <- (p1 | (p2 / p4)) / p3 +
+  plot_layout(heights = c(1.2, 1))
+
+print(combined_figure)
+
+# Save figure
+ggsave(file.path(output_dir, "functional_composition_updated.pdf"), 
+       combined_figure, width = 14, height = 10, units = "in")
+
+# ============ 7. SUMMARY STATISTICS ============
+
+# === SUMMARY STATISTICS ===
+
+# Correlation tests - use Turbidity_value
+cor_richness <- cor.test(functional_richness$Turbidity_value, functional_richness$Richness)
+cat("Functional richness vs turbidity:\n")
+cat("  r =", round(cor_richness$estimate, 3), "\n")
+cat("  p =", format.pval(cor_richness$p.value, digits = 3), "\n\n")
+
+cor_shannon <- cor.test(functional_shannon$Turbidity_value, functional_shannon$Shannon)
+cat("Functional diversity vs turbidity:\n")
+cat("  r =", round(cor_shannon$estimate, 3), "\n")
+cat("  p =", format.pval(cor_shannon$p.value, digits = 3), "\n\n")
+
+# Mean proportions by turbidity category - also use Turbidity_value
+functional_by_turbidity <- functional_composition %>%
+  dplyr::mutate(
+    Site = as.character(Site),
+    Turbidity_value = Turbidity  # Create this column if using original Turbidity
+  ) %>%
+  dplyr::mutate(Turbidity_Category = ifelse(Turbidity_value > 6, "High", "Low")) %>%
+  group_by(Turbidity_Category) %>%
+  dplyr::summarize(
+    across(any_of(c("PHOT", "FDM", "ADS", "WCP", "DEP")),
+           ~ mean(., na.rm = TRUE)),
+    .groups = "drop"
+  )
+
+cat("Mean functional composition by turbidity category:\n")
+print(functional_by_turbidity)
+
+# Export composition data
+write.csv(functional_composition, 
+          file.path(output_dir, "functional_composition_by_site.csv"),
+          row.names = FALSE)
+```
+
+
+```{r}
+# Check phylum composition of PHOT
+phot_phyla <- functional_dataset %>%
+  dplyr::filter(is_photoautotroph == 1, as.logical(Is_Significant), Fraction == "All_Samples") %>%
+  dplyr::count(final_phylum) %>%
+  dplyr::arrange(desc(n))
+
+print(phot_phyla)
+```
+
