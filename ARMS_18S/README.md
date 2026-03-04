@@ -58,11 +58,10 @@ Primers were removed using **Cutadapt** prior to DADA2 processing. Reads with no
 
 | Parameter | Value |
 |---|---|
-| Forward primer (5′→3′) | `CCAGCASCYGCGGTAATTCC` (required) |
-| Forward primer RC | `TCATYRATCAAGAACGAAAGT` (optional, internal) |
-| Reverse primer (5′→3′) | `ACTTTCGTTCTTGATYRATGA` (required) |
-| Reverse primer RC | `GGAATTACCGCRGSTGCTGG` (optional, internal) |
-| Adapter syntax | Anchored linked adapters (`^PRIMER;required;...RC$;optional`) |
+| Forward primer (5′→3′) | `CCAGCASCYGCGGTAATTCC` 
+| Forward primer RC | `TCATYRATCAAGAACGAAAGT`
+| Reverse primer (5′→3′) | `ACTTTCGTTCTTGATYRATGA` 
+| Reverse primer RC | `GGAATTACCGCRGSTGCTGG` 
 | `--overlap` / `-O` | 5 bp |
 | `--minimum-length` | 5 bp |
 | `--pair-filter` | `any` |
