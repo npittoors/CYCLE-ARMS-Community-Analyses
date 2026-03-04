@@ -1,619 +1,398 @@
-# 18S rDNA Pre-Taxonomic Assignment Analysis Pipeline
+# 18S rRNA ARMS Metabarcoding: Post-Bioinformatics Analysis Pipeline
+
+**Author:** Nicole Pittoors, Lehigh Oceans Research Center, Lehigh University  
+**Manuscript:** *"Environmental filtering shapes patch dynamics across isolated mesophotic reefs"*
+
+---
 
 ## Overview
-This R markdown pipeline performs comprehensive **pre-taxonomic** biodiversity analyses on 18S rDNA metabarcoding data from ARMS (Autonomous Reef Monitoring Structures) deployed across mesophotic Gulf of Mexico reef banks. Analyses are conducted at the ASV level before family/species-level taxonomic assignment, providing a taxonomically-agnostic view of community structure and diversity patterns.
 
-**Analysis Scope:** 114 ARMS samples (36 ARMS units × 3 size fractions) across 12 sites and 3 size fractions (sessile, 500 µm motile, 100 µm motile).
+This repository contains the bioinformatics analysis pipeline for 18S rRNA metabarcoding data from Autonomous Reef Monitoring Structures (ARMS) deployed across mesophotic reef banks in the northwestern Gulf of Mexico. It covers all steps from the LULU-curated, taxonomically assigned ASV table through community diversity and differential abundance analyses. The pipeline is divided into two sequential R Markdown scripts:
 
-**Important Note on Data Filtering:** The input ASV table (`18S_metazoo_ASVtab.csv`) contains **only marine benthic metazoans and Rhodophyta (red algae)**. Taxonomic classification was performed upstream (see taxonomic assignment pipeline) to confirm ASV identities before this analysis. All non-metazoan eukaryotes (protists, fungi, non-rhodophyte algae, etc.), controls, and eDNA samples were removed prior to this workflow. This ensures that "pre-taxa" analyses are still biologically meaningful, focusing on reef-associated multicellular organisms while avoiding taxonomic resolution biases at family/genus/species levels.
+1. **`FINAL_18S_PreTaxa.Rmd`** — Pre-taxonomic (ASV-level) biodiversity analyses: alpha diversity, beta diversity, ordination, PERMANOVA, dbRDA, and distance-based community assembly tests
+2. **`PostTaxa_18S.Rmd`** — Post-taxonomic analyses: relative abundance visualization, differential abundance (ANCOM-BC2), and functional trait analysis
 
-
----
-
-## Relationship to Taxonomic Assignment Pipeline
-
-This "pre-taxa" analysis is **downstream** of initial taxonomic classification but **upstream** of fine-scale taxonomic analyses. Here's how it fits into the complete workflow:
-
-### Complete Analysis Workflow:
-
-**Step 1: Bioinformatics & Taxonomic Classification** (Upstream - Separate Pipeline)
-- Raw sequence processing (DADA2)
-- ASV inference and chimera removal
-- LULU curation for co-amplification artifacts
-- **Taxonomic classification to phylum level minimum**
-  - Custom hierarchical pipeline: NMNH vouchers → MetaZooGene → NCBI
-  - Forward-filling missing ranks using WoRMS API
-  - Marine habitat verification
-- **Filter to metazoans + Rhodophyta only**
-- Remove controls, blanks, eDNA samples
-- Output: `18S_metazoo_ASVtab.csv` (input for this pipeline)
-
-**Step 2: Pre-Taxonomic Diversity Analysis** (This Pipeline)
-- ASV-level alpha diversity (richness, Shannon, Simpson, evenness)
-- ASV-level beta diversity (NMDS, PERMANOVA, dbRDA)
-- Distance-based analyses (Mantel, MRM)
-- Community structure without taxonomic labels
-
-**Step 3: Taxonomic Analysis** (Downstream - Separate Pipeline)
-- Phylum-level composition bar plots
-- Family-level differential abundance (ANCOM-BC2)
-- Taxon-specific environmental responses
-- Functional group analyses
-
-### Data Quality Assurance:
-
-Taxonomic filtering ensures biological relevance while maintaining ASV-level resolution:
-
-**What was filtered OUT (before this analysis):**
-- Protists (Ciliophora, Cercozoa, etc.)
-- Fungi (Ascomycota, Basidiomycota)
-- Non-rhodophyte algae (Chlorophyta, Ochrophyta)
-- Terrestrial/freshwater taxa
-- Unclassified eukaryotes (no phylum match)
-- Negative controls and extraction blanks
-- eDNA water samples (analyzed separately)
-
-**What was KEPT (for this analysis):**
-- All Metazoa phyla: Porifera, Cnidaria, Platyhelminthes, Annelida, Mollusca, Arthropoda, Bryozoa, Echinodermata, Chordata, etc.
-- Rhodophyta (red algae) - important calcifying reef organisms
-- Both common and rare ASVs (no abundance filtering)
-- All three size fractions (sessile, 500 µm, 100 µm)
-
-**What was NOT required (intentionally):**
-- Family-level classification
-- Genus-level classification  
-- Species-level classification
-- Perfect taxonomic completeness
-
+**Analysis scope:** 114 ARMS samples (36 ARMS units × 3 size fractions) across 12 sites on six reef banks.  
+**Size fractions:** Sessile (encrusting), 500 µm motile, 100 µm motile.
 
 ---
 
-## Pipeline Structure
+## Data Availability
 
-### **Part 1: Data Import and Phyloseq Object Creation**
-- Load metazoan+Rhodophyta-filtered ASV table (LULU-curated)
-  - **Upstream filtering already completed:** Taxonomic classification was performed to identify ASVs to at least phylum level
-  - Only ASVs classified as **Metazoa** (all animal phyla) or **Rhodophyta** (red algae, important reef calcifiers) were retained
-  - All other eukaryotes removed: protists, fungi, Chlorophyta, Ochrophyta, non-marine taxa
-- Import ARMS metadata with environmental variables
-- Synchronize file IDs between ASV table and metadata
-- Remove controls and eDNA samples (columns 115-163)
-- Create phyloseq object for integrated analyses
-- Remove zero-abundance ASVs (7,089 → 6,332 ASVs retained)
-  - Zero-abundance ASVs result from removing eDNA/control samples
-
-**Key Outputs:**
-- `biotic_18S` - Clean ASV matrix (6,332 metazoan/rhodophyte ASVs × 114 ARMS samples)
-- `cycle18Sdat` - Primary phyloseq object
-- `metadata_18S` - Enhanced metadata with diversity metrics
+| Data | File | Location |
+|---|---|---|
+| Raw sequences (COI + 18S) | — | NCBI SRA, BioProject [PRJNA1159220](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1159220) |
+| 18S ASV table | `18S_metazoo_ASVtab.csv` | `ARMS_metabarcoding/Data/` |
+| COI ASV table | `COI_metazoan_ASVtab.csv` | `ARMS_metabarcoding/Data/` |
+| 18S metadata | `metadata_18S_FINAL.csv` | `ARMS_metabarcoding/Data/` |
+| COI metadata / environmental variables | `metadata_ARMS_env_COI.csv` | `ARMS_metabarcoding/Data/` |
+| 18S taxonomy table | `taxa_metazoan_18S.tsv` | `ARMS_metabarcoding/Data/` |
+| COI taxonomy table | `taxa_metazoan_COI_final.csv` | `ARMS_metabarcoding/Data/` |
+| Functional trait mapping table | `trait_mapping_QC_v4.csv` | `ARMS_metabarcoding/Data/` |
 
 ---
 
-### **Part 2: Data Quality Assessment**
-- **Raw read visualization** - Per-sample read counts colored by site
-- **Library size distributions** - ASV and sample read summaries
-- **Rarefaction curves** - Adequacy of sampling depth by site and fraction
-  - Calculated at 100-read intervals up to minimum library size
-  - Separate curves for 12 sites and 3 size fractions
-  - Asymptote assessment for sampling completeness
+## Complete Workflow
 
-**Outputs:**
-- `18S_RawReads_Sample_Site.pdf`
-- `18S_Reads_ASVs_Samples.pdf`
-- `18S_rarefaction_by_site.pdf`
-- `18S_rarefaction_by_fraction.pdf`
+```
+Step 1a: Sequence Processing  [QC_trim_DADA2.md]
+            ↓
+Step 1b: Taxonomic Assignment  [ARMS_Assign_Taxonomy_Pipeline]
+            ↓
+Step 2: Pre-Taxonomic Diversity Analysis  [FINAL_18S_PreTaxa.Rmd]
+            ↓
+Step 3: Taxonomic & Differential Abundance Analysis  [PostTaxa_18S.Rmd]
+```
 
----
+### Step 1a — Sequence Processing (DADA2 + LULU)
 
-### **Part 3: Rarefaction to Standardize Library Size**
-**Rationale:** 18S library sizes ranged from 17,869 to 55,729 reads. Rarefaction standardizes library size to enable fair alpha diversity comparisons.
+Raw paired-end Illumina amplicon sequences were processed using **DADA2** for quality filtering, denoising, ASV inference, and chimera removal, preceded by quality control with **FastQC/MultiQC** and primer trimming with **Cutadapt**.
 
-**Rarefaction Parameters:**
-- Target depth: 17,869 reads (minimum library size)
-- Seed: 42 (for reproducibility)
-- ASVs retained: 5,852 / 7,089 (82.6%)
-- Removed ASVs: primarily rare singletons/doubletons
+> **The full pipeline for both COI and 18S markers is documented in [`QC_trim_DADA2.md`](./QC_trim_DADA2.md) in this repository.** Parameters for all steps are recorded there. Key parameters are also summarized below for reference.
 
-**Key Outputs:**
-- `d_r17k` - Rarefied phyloseq object (17,869 reads/sample)
-- Rarefaction report with ASV retention statistics
+#### Primer Trimming (Cutadapt)
 
----
+Primers were removed using **Cutadapt** prior to DADA2 processing. Reads with no detectable forward primer were discarded (`--discard-untrimmed`).
 
-### **Part 4: Alpha Diversity Metrics**
-Calculate diversity indices from rarefied data using `vegan` package:
+**18S V4** 
 
-**Primary Metrics:**
-- **Observed richness** - Number of ASVs per sample
-- **Shannon diversity (H')** - Entropy-based integrated diversity metric
-- **Simpson diversity** - Probability-based integrated diversity metric  
-- **Pielou's evenness (J')** - Shannon divided by maximum possible Shannon
+| Parameter | Value |
+|---|---|
+| Forward primer (5′→3′) | `CCAGCASCYGCGGTAATTCC` (required) |
+| Forward primer RC | `TCATYRATCAAGAACGAAAGT` (optional, internal) |
+| Reverse primer (5′→3′) | `ACTTTCGTTCTTGATYRATGA` (required) |
+| Reverse primer RC | `GGAATTACCGCRGSTGCTGG` (optional, internal) |
+| Adapter syntax | Anchored linked adapters (`^PRIMER;required;...RC$;optional`) |
+| `--overlap` / `-O` | 5 bp |
+| `--minimum-length` | 5 bp |
+| `--pair-filter` | `any` |
+| `--action` | `trim` |
+| `--discard-untrimmed` | Yes |
+| Input | Paired-end `.fastq.gz`; processed in a `for` loop over `*_R1_001.fastq.gz` |
 
-**Additional Metrics:**
-- Chao1 richness estimate
-- ACE richness estimate
-- Margalef diversity index
-- Mean Jaccard dissimilarity per sample
+*Amplicon target:* ~536 bp fragment of the 18S V4 region  
+*References:* Piredda et al. 2017; Tragin et al. 2018
 
-**Visualization:**
-- Violin plots by site (12 sites)
-- Violin plots by fraction (sessile, 500 µm, 100 µm)
-- Mean ± SE overlays with diamond symbols
+**COI**
 
-**Outputs:**
-- `18S_diversity_indices_rarefied.csv` - All metrics per sample
-- `18S_alphaDiv_Locality_violin_rarefied.pdf`
-- `18S_alphaDiv_Fraction_violin_rarefied.pdf`
+Primers used were the **Geller/Leray** COI primers targeting a ~313 bp fragment of mitochondrial cytochrome c oxidase subunit I, designed for marine invertebrates and metazoan metabarcoding.
 
----
+| Parameter | Value |
+|---|---|
+| Forward primer (5′→3′) | `GGWACWGGWTGAACWGTWTAYCCYCC` (anchored) |
+| Reverse primer (5′→3′) | `TAIACYTCIGGRTGICCRAARAAYCA` (anchored; contains inosine) |
+| `-n` | 1 |
+| `--overlap` / `-O` | 5 bp |
+| `--minimum-length` | 5 bp |
+| `--pair-filter` | `any` |
+| `--action` | `trim` |
+| `--discard-untrimmed` | Yes |
+| Input | Paired-end `.fastq.gz`; processed in a `for` loop over `*_R1_001.fastq.gz` |
 
-### **Part 5: Linear Mixed-Effects Models (LMMs)**
-Statistical framework accounting for paired sampling structure (3 fractions per ARMS unit).
+*Amplicon target:* ~313 bp fragment of COI (390 bp including adapters/primers)  
+*References:* Geller et al. 2013 (*Mol Ecol Res* 13(5):851–861); Leray et al. 2013 (*Front Zool* 10(34):1–14)
 
-**Analysis 1: Size Fraction Effects**
-- **Model:** `Diversity ~ fraction + (1|ARMS_ID)`
-- **Test:** Type II Wald χ² for overall fraction effect
-- **Contrasts:** Planned comparison of sessile vs. pooled motile (100 µm + 500 µm)
-- **Purpose:** Test hypothesis that sessile and motile communities differ fundamentally
-- **Metrics:** Shannon, Simpson, richness, evenness
+#### Quality Filtering and Denoising (DADA2)
 
-**Analysis 2: Environmental Gradient Effects**
-- **Model:** `Diversity ~ depth + turbidity + fraction + (1|ARMS_ID)`
-- **Predictors:**
-  - Depth (54-85 m continuous)
-  - Turbidity rank (standardized visibility estimates, 1=clear to 13=turbid)
-- **Purpose:** Quantify how mesophotic depth and benthic nepheloid layer influence diversity
-- **Output:** Marginal R² (variance explained by fixed effects)
+**COI** 
 
-**Analysis 3: Spatial Variation (Site Effects)**
-- **Model:** `Diversity ~ fraction + sitelocality + (1|ARMS_ID)`
-- **Test:** Type II Wald χ² for site effect
-- **Post-hoc:** Conditional Tukey HSD pairwise comparisons if p < 0.05
-- **Purpose:** Identify spatial heterogeneity across 12 sampling locations
-- **Degrees of freedom:** Kenward-Roger approximation
+| Parameter | Value |
+|---|---|
+| `truncLen` | c(220, 190) — forward, reverse |
+| `maxEE` | c(2, 3) — forward, reverse |
+| `errorEstimationFunction` | `loessErrfun` (quality-score-ignoring) |
+| `pool` | `"pseudo"` (pseudopooling; enables singleton detection) |
+| `multithread` | `TRUE` |
+| Chimera removal | `removeBimeraDenovo()` |
 
-**Model Diagnostics:**
-- Random effect variance inspection
-- Marginal R² via `MuMIn::r.squaredGLMM()`
-- Residual plots (linearity, homoscedasticity, normality)
+**18S** 
 
-**Outputs:**
-- `18S_Analysis1_Fraction_Effects_4metrics.csv`
-- `18S_Analysis2_Environmental_Effects_4metrics.csv`
-- `18S_Analysis3_Site_Effects_4metrics.csv`
-- `18S_Site_Comparisons_[metric].csv` (conditional on significance)
-- `18S_Significant_Site_Comparisons_[metric].csv`
+| Parameter | Value |
+|---|---|
+| `truncLen` | c(220, 180) — forward, reverse |
+| `maxEE` | c(2, 3) — forward, reverse |
+| `pool` | `"pseudo"` (pseudopooling; enables singleton detection) |
+| `multithread` | `TRUE` |
+| Chimera removal | `removeBimeraDenovo()` |
 
----
+> **QC note:** Although the 18S V4 amplicon is nominally ~536 bp, truncation lengths of c(220, 180) produced a mean paired-read merge rate of 81.8% across 164 samples (range: 45.6–97.1%), confirming sufficient overlap for merging. The effective amplicon length is shorter than the nominal target across the metazoan assemblage sampled, consistent with known V4 length variability among marine invertebrate phyla. Two samples (both 500 µm fraction) fell below 50% merge rate; all other samples exceeded 65%. Overall read retention from input to non-chimeric reads was 65.2%.
 
-### **Part 6: Descriptive Statistics**
-Summary tables with mean ± SE format.
+#### LULU Curation
+Following DADA2, ASV tables for both markers were curated using **LULU** to remove erroneous ASVs arising from co-amplification artifacts. The LULU curation script (`lulu_curation.R`) is available in this repository.
 
-**Table S2A Components:**
-1. **By Fraction:** Mean, SD, SE, Min, Max for all 4 metrics across 3 fractions
-2. **By Site:** Mean, SD, SE for all 4 metrics across 12 sites
-3. **Site Rankings:** Sites ranked by richness, evenness, and Shannon diversity
-4. **Site × Fraction:** Richness and evenness breakdown for each combination
-5. **Sample-Level Data:** Full dataset for transparency and verification
+### Step 1b — Taxonomic Assignment
 
-**Outputs:**
-- `TableS2A_Supplement_18S_Fraction_Stats.csv`
-- `TableS2_18S_Site_Richness.csv`
-- `TableS2_18S_Site_Evenness.csv`
-- `TableS2_18S_Site_Shannon.csv`
-- `TableS2_18S_Site_Fraction_Detail.csv`
-- `TableS2_18S_Sample_Level_Data.csv`
+Taxonomic classification was performed using a custom hierarchical BLAST pipeline against curated marine reference databases, with taxonomy backfilling via WoRMS or GBIF and filtering to retain Metazoa and Rhodophyta only.
+
+> 
+> **[https://github.com/npittoors/CYCLE-ARMS-Community-Analyses/tree/main/ARMS_Assign_Taxonomy_Pipeline](https://github.com/npittoors/CYCLE-ARMS-Community-Analyses/tree/main/ARMS_Assign_Taxonomy_Pipeline)**
+
+**Output of Steps 1a–1b:** `18S_metazoo_ASVtab.csv` — 7,089 ASVs × 114 ARMS samples (metazoan + Rhodophyta only)
 
 ---
 
-### **Part 7: 4th Root Transformation for Beta Diversity**
-**Rationale:** Down-weight abundant ASVs to reveal community-wide patterns rather than being dominated by a few numerically abundant taxa. The 4th root transformation is mathematically equivalent to square-rooting twice and is more effective than Hellinger transformation for highly skewed metabarcoding data.
+## Required R Packages
 
-**Transformation Steps:**
-1. Remove zero-abundance ASVs across all samples
-2. Convert raw counts to relative abundance (proportions sum to 1)
-3. Apply 4th root: `transformed_value = proportion^0.25`
-4. Create transformed phyloseq objects
+### Pre-Taxonomic Script (`FINAL_18S_PreTaxa.Rmd`)
 
-**Data Products:**
-- `cycle18Sdat_4th` - Non-rarefied 4th root transformed phyloseq
-- `d_r17k_4th` - Rarefied 4th root transformed phyloseq
-
-**Fraction Subsets:**
-Created for motile vs. sessile comparisons:
-- All samples combined
-- Sessile only (biofilm + encrusting organisms)
-- Motile only (100 µm + 500 µm combined)
-- 100 µm only
-- 500 µm only
-
-**For Each Subset:**
-- Raw count matrix (ASVs × samples)
-- Relative abundance matrix (proportions)
-- 4th root transformed matrix (for ordination)
-- Presence/absence matrix (for Jaccard)
-- Metadata subset
-
-**Outputs:**
-- `18S_all_data_subsets.RData` - Complete workspace with all subsets
-- `biotic_clean_18S.RData` - Clean full ASV matrix
-- `biotic_percs_18S_4th.RData` - 4th root transformed matrix
-- `metadata_18S_FINAL.RData` / `.csv` - Final metadata
-
----
-
-### **Part 8: Beta Diversity Ordination (NMDS)**
-Non-metric multidimensional scaling on Bray-Curtis dissimilarity matrices calculated from 4th root transformed data.
-
-**NMDS Parameters:**
-- Distance metric: Bray-Curtis
-- Dimensions: k = 2
-- Maximum iterations: 1,000
-- Random starts: 20
-- Convergence criterion: stress < 0.20
-
-**Ordination Types:**
-1. **All Samples** - Full dataset (n = 114)
-2. **By Site** - 12 separate site ordinations
-3. **By Fraction** - Sessile, 500 µm, 100 µm separate
-4. **Sessile Only** - Biofilm and encrusting taxa (n = 38)
-5. **Motile Only** - Free-living cryptofauna (n = 76)
-
-**Visualization:**
-- Color by: site, fraction, depth, turbidity
-- Shape by: fraction
-- 95% confidence ellipses by group
-- Environmental vector fitting (depth, turbidity, salinity, temperature)
-
-**Outputs:**
-- `18S_NMDS_AllSamples_BySite.pdf`
-- `18S_NMDS_AllSamples_ByFraction.pdf`
-- `18S_NMDS_Sessile.pdf`
-- `18S_NMDS_Motile.pdf`
-
----
-
-### **Part 9: PERMANOVA (Community Composition)**
-Permutational Multivariate Analysis of Variance testing effects of environmental and spatial variables on community composition using Bray-Curtis dissimilarity from 4th root transformed data.
-
-**Model Types:**
-
-**Model 1: Environmental Baseline**
-- Formula: `Community ~ depth + turbidity`
-- Purpose: Quantify environmental filtering effects
-- Permutations: 999
-
-**Model 2: Spatial Variables**
-- Formula: `Community ~ latitude + longitude`
-- Purpose: Test for geographic distance effects
-- Interpretation: Dispersal limitation if significant
-
-**Model 3: Combined Model**
-- Formula: `Community ~ depth + turbidity + latitude + longitude`
-- Purpose: Partition variance between environment and space
-
-**Model 4: Site Identity**
-- Formula: `Community ~ sitelocality`
-- Purpose: Test for site-specific effects beyond measured variables
-- Interpretation: Unmeasured local processes or microhabitat heterogeneity
-
-**Conditional Tests (Variance Partitioning):**
-- `Environment | Geography` - Pure environmental effects controlling for spatial autocorrelation
-- `Geography | Environment` - Pure spatial effects (dispersal limitation) controlling for environment
-- `Site | All` - Local heterogeneity beyond all regional predictors
-
-**Separate Analyses For:**
-- All samples combined
-- Sessile fraction only
-- Motile fraction only (100 µm + 500 µm combined)
-- 100 µm fraction only
-- 500 µm fraction only
-
-**Pre-test Diagnostics:**
-- PERMDISP (test for homogeneity of multivariate dispersions)
-- If PERMDISP significant → use Type III SS or interpret with caution
-
-**Key Outputs:**
-- `18S_PERMANOVA_AllSamples.csv`
-- `18S_PERMANOVA_Sessile.csv`
-- `18S_PERMANOVA_Motile.csv`
-- `18S_PERMANOVA_100um.csv`
-- `18S_PERMANOVA_500um.csv`
-- R² values (variance explained)
-- F-statistics and p-values
-
----
-
-### **Part 10: Distance-Based Redundancy Analysis (dbRDA)**
-Constrained ordination partitioning community variation among environmental and spatial predictors.
-
-**Hierarchical Model Series:**
-1. Individual environmental drivers (depth, turbidity)
-2. Combined environmental model (depth + turbidity)
-3. Spatial model (latitude + longitude)
-4. Full model (environment + space)
-
-**Conditional Analyses:**
-- `Geography | Environment` - Spatial effects after removing environmental variance
-- `Environment | Geography` - Environmental effects after removing spatial autocorrelation
-- `Turbidity | Depth` - Unique contribution of nepheloid layer beyond depth-associated gradients
-
-**Permutation Strategy:**
-- 999 permutations
-- Restricted permutations for paired ARMS fractions (permute within ARMS unit)
-- Term-by-term ANOVA for sequential variance partitioning
-
-**Outputs:**
-- dbRDA ordination plots with environmental vectors
-- Variance partitioning diagrams
-- Sequential R² contributions per predictor
-
----
-
-### **Part 11: Distance Matrix Analyses**
-Complementary hypothesis tests using pairwise dissimilarity matrices to test environmental filtering vs. dispersal limitation.
-
-**Distance Matrices:**
-- **Community dissimilarity:** Bray-Curtis on 4th root data
-- **Environmental distance:** Euclidean distance on z-standardized depth + turbidity
-- **Geographic distance:** Least-cost distance through navigable water (km)
-
-**Statistical Tests:**
-
-**1. Simple Mantel Tests (Bivariate Correlations)**
-- Test: Correlation between community dissimilarity and environmental distance
-- Test: Correlation between community dissimilarity and geographic distance
-- Interpretation: Which distance type better predicts community turnover?
-- Permutations: 9,999
-- Statistic: Pearson's r
-
-**2. Partial Mantel Tests (Independent Effects)**
-- `Environment | Geography` - Environmental effects controlling for geographic distance
-- `Geography | Environment` - Geographic effects controlling for environmental distance
-- Interpretation: Evidence for environmental filtering vs. dispersal limitation
-- Permutations: 9,999
-
-**3. Multiple Regression on Distance Matrices (MRM)**
-- Model: `Community_Dissimilarity ~ Environmental_Distance + Geographic_Distance`
-- Provides: Standardized coefficients (β), p-values, overall R²
-- Advantage: Simultaneously evaluates both predictors
-- Disadvantage: Assumes linear relationships
-
-**Separate Analyses For:**
-- All samples
-- Sessile only
-- Motile only
-
-**Key Outputs:**
-- `18S_Mantel_Results_nopp.csv`
-- `18S_Partial_Mantel_Results_nopp.csv`
-- `18S_MRM_Results_nopp.csv`
-- Scatter plots: Community dissimilarity vs. environmental/geographic distance
-
----
-
-## Software Requirements
-
-### R Version
-- R ≥ 4.0.0 recommended
-
-### Required R Packages
-
-**Data Management:**
 ```r
-tidyr          # Data reshaping
-plyr           # Data manipulation (load before dplyr!)
-dplyr          # Data manipulation
-reshape2       # Data restructuring
+# Data management
+library(tidyr)
+library(plyr)        # Load before dplyr
+library(dplyr)
+library(reshape2)
+
+# Diversity & community analysis
+library(vegan)
+library(phyloseq)
+
+# Statistical modeling
+library(lme4)
+library(multcomp)
+library(emmeans)
+library(car)
+library(MuMIn)
+library(performance)
+library(coin)
+library(broom.mixed)
+
+# Visualization
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+library(scales)
+library(ggsci)
+library(patchwork)
+library(grid)
+
+# Optional
+library(openxlsx)
 ```
 
-**Diversity & Community Analysis:**
+### Post-Taxonomic Script (`PostTaxa_18S.Rmd`)
+
 ```r
-vegan          # Diversity indices, ordination, PERMANOVA
-phyloseq       # Microbiome/metabarcoding data handling
-```
+# Core
+library(tidyverse)
+library(phyloseq)
+library(ggplot2)
+library(dplyr)
+library(vegan)
 
-**Statistical Modeling:**
-```r
-lme4           # Linear mixed-effects models
-multcomp       # Multiple comparisons
-emmeans        # Estimated marginal means and contrasts
-car            # Type II/III ANOVA tests
-MuMIn          # Model selection and R² calculations
-performance    # Model diagnostics
-coin           # Permutation tests
-broom.mixed    # Tidy model outputs
-```
+# Differential abundance
+library(ANCOMBC)
+library(conflicted)
+library(foreach)
+library(rngtools)
+library(reshape2)
 
-**Visualization:**
-```r
-ggplot2        # Publication-quality plots
-RColorBrewer   # Color palettes
-gridExtra      # Multi-panel plots
-scales         # Scale functions for axes
-ggsci          # Scientific journal color palettes
-patchwork      # Combining ggplot objects
-grid           # Low-level plotting
-```
-
-**Other:**
-```r
-openxlsx       # Excel file export (optional)
-```
-
+# Visualization
+library(viridis)
+library(gridExtra)
+library(patchwork)
+library(ggpattern)   # For combined 18S + COI plots
 ```
 
 ---
 
-## Required Input Files for Reproducibility
+## Input Files
 
-1. **`18S_metazoo_ASVtab.csv`** (Primary input)
-   - Marine benthic metazoan + Rhodophyta ASV abundance matrix
-   - Rows: ASVs (7,089 ASVs after upstream filtering)
-   - Columns: Samples (114 ARMS samples)
-   - Format: CSV with row names (ASV IDs)
-   - **Pre-filtered for biological relevance:**
-     - Taxonomic classification performed upstream (see taxonomic assignment pipeline)
-     - Only ASVs classified as **Metazoa** (all animal phyla) retained
-     - Rhodophyta (red algae) included as key reef calcifiers
-     - Non-metazoan eukaryotes removed: protists, fungi, Chlorophyta, Ochrophyta, other algae
-     - Non-marine taxa removed based on WoRMS habitat classification
-     - Controls and eDNA samples removed (original n = 163 samples → 114 ARMS samples)
-   - **Still "pre-taxa" because:** Analyses use ASV-level data without family/genus/species assignments, avoiding lower-rank taxonomic biases
+### Primary Inputs
 
-2. **`metadata_ARMS_env.csv`** (Primary input)
-   - Sample metadata with environmental variables
-   - Rows: 114 samples (matches ASV table columns)
-   - Key columns:
-     - Sample identifiers: `fileID0_18S`, `fileID_18S`
-     - Site info: `sitelocality` (12 sites), `arms` (ARMS unit ID)
-     - Fraction: `fraction` (sessile, 500, 100)
-     - Environmental: `depth`, `turbidity_std_rank`, `latitude`, `longitude`
-     - HOBO data: `temp`, `salinity`, `DO`, `light`
-   - Format: CSV with row names (Sample IDs)
+| File | Description | Used In |
+|---|---|---|
+| `18S_metazoo_ASVtab.csv` | LULU-curated metazoan + Rhodophyta ASV count table (7,089 ASVs × 114 samples) | PreTaxa |
+| `metadata_ARMS_env.csv` | Sample metadata with environmental variables (depth, turbidity, coordinates, HOBO data) | PreTaxa |
+| `biotic_percs_18S_4th.Rdata` | ASV proportions (4th-root transformed, ordered west to east) | PostTaxa |
+| `biotic_clean_18S.Rdata` | ASV raw count table (zero-read ASVs removed) | PostTaxa |
+| `metadata_18S.Rdata` | Sample metadata including `turbidity_std_rank`, `sitelocality`, `fraction`, `ARMS_ID_corrected` | PostTaxa |
+| `taxa_metazoan_18S.tsv` | Metazoan taxonomy table (rows = ASVs; columns = phylum through species) | PostTaxa |
+| `missing_asvs.tsv` | ASV IDs with no taxonomy database hits (for unclassified read analysis) | PostTaxa |
+| `18S_lulu_ASVtab.csv` | Complete post-LULU ASV count table (all samples including non-ARMS) | PostTaxa |
+| `final_taxonomy_results.tsv` | Complete taxonomy assignments (metazoan + non-metazoan) | PostTaxa |
+| `trait_mapping_QC_v4.csv` | Functional trait table mapping families to nutritional strategies | PostTaxa |
+| `COI_phylum_turbidity_simple.csv` | Exported COI phylum turbidity results (for combined 18S + COI plots) | PostTaxa |
+| `all_environmental_significant_results_18S.csv` | Exported from previous ANCOM-BC2 run (used in recovery chunk) | PostTaxa |
+| `ancombc_raw_counts_physeq_18S.RData` | Saved phyloseq object from ANCOM-BC2 run (optional, for recovery) | PostTaxa |
 
-3. **`FINAL_18S_PreTaxa.Rmd`** (Analysis script)
-   - Complete R markdown with all analyses
-   - **Note:** Contains personal file paths that need sanitization (see below)
+### Recommended Intermediate R Objects (for Reproducibility)
 
-### Intermediate R Objects (Recommended for Reproducibility):
-
-4. **`metazoan_ASVtab_18S.Rdata`**
-   - Clean ASV matrix as R object
-   - Allows users to skip data wrangling steps
-
-5. **`metadata_ARMS.Rdata`**
-   - Metadata as R object with fileID corrections
-   - Synchronized with ASV table
-
-6. **`d_r17k.Rdata`**
-   - Rarefied phyloseq object (17,869 reads)
-   - Users can start from "Part 4: Alpha Diversity"
-
-7. **`18S_all_data_subsets.RData`**
-   - All fraction-specific matrices and metadata
-   - Users can start from "Part 8: Beta Diversity"
+| File | Description | Allows Starting From |
+|---|---|---|
+| `metazoan_ASVtab_18S.Rdata` | Clean ASV matrix | Part 2 (skip data wrangling) |
+| `metadata_ARMS.Rdata` | Metadata synchronized with ASV table | Part 2 |
+| `d_r17k.Rdata` | Rarefied phyloseq object (17,869 reads/sample) | Part 4 (alpha diversity) |
+| `18S_all_data_subsets.RData` | All fraction-specific matrices and metadata | Part 8 (beta diversity) |
+| `metadata_18S_FINAL.RData` | Final synchronized metadata for all analyses | Any part |
 
 ---
 
-## Quick Start Guide
+## Study Design
 
-### Option 1: Start from CSV Files (Full Pipeline)
-```r
-# 1. Set working directory to repository root
-setwd("path/to/FINAL_18S_Pipeline")
+12 sites across six reef banks, ordered from high to low turbidity:
 
-# 2. Install required packages (if needed)
-install.packages(c("tidyr", "dplyr", "vegan", "phyloseq", "ggplot2", 
-                   "lme4", "emmeans", "car", "MuMIn"))
+| Site Code | Site Locality |
+|---|---|
+| MCG | McGrail_deep |
+| EFGshal | EFGB_shallow |
+| ALDshal | Alderdice_shallow |
+| BRIshal | Bright_shallow |
+| DIAback | Diaphus_deep2 |
+| EFGdeep | EFGB_deep |
+| DIAcoral | Diaphus_deep1 |
+| BRIback | Bright_deep2 |
+| BRIcoral | Bright_deep1 |
+| ALDcoral | Alderdice_deep1 |
+| STE | Stetson_shallow |
+| ALDback | Alderdice_deep2 |
 
-# 3. Run from beginning
-# Open FINAL_18S_PreTaxa.Rmd
-# Execute chunks sequentially starting from "Load ASV table..."
-```
+---
 
-### Option 2: Start from R Objects (Skip Data Wrangling)
-```r
-# 1. Navigate to "START HERE" section (line ~134)
-# 2. Load pre-made R objects:
-load("./metazoan_ASVtab_18S.Rdata")
-load("./metadata_ARMS.Rdata")
+## Part 1: Pre-Taxonomic Diversity Analysis (`FINAL_18S_PreTaxa.Rmd`)
 
-# 3. Continue with phyloseq object creation
-```
+> Analyses use ASV-level data without family/genus/species resolution, providing a taxonomically agnostic view of community structure.
 
-### Option 3: Start from Rarefied Data (Alpha/Beta Diversity Only)
-```r
-# 1. Navigate to "Part 4: Alpha Diversity Metrics"
-# 2. Load rarefied phyloseq:
-load("./d_r17k.Rdata")
-load("./meta_dr17k.Rdata")
+### Data Filtering Applied Upstream
+Retained: All Metazoa phyla, Rhodophyta  
+Removed: Protists, fungi, non-rhodophyte algae, terrestrial/freshwater taxa, controls, eDNA water samples  
+Result: 6,332 ASVs retained across 114 ARMS samples after zero-abundance removal
 
-# 3. Continue with diversity calculations
-```
+### Structure
+
+**Part 1 — Data Import and Phyloseq Object Creation**  
+Imports ASV table and metadata, synchronizes sample IDs, removes controls and eDNA columns, builds primary phyloseq object. Removes zero-abundance ASVs (7,089 → 6,332).
+
+**Part 2 — Data Quality Assessment**  
+Raw read counts, library size distributions, and rarefaction curves by site and fraction to assess sampling completeness.
+
+*Output files:* `18S_RawReads_Sample_Site.pdf`, `18S_Reads_ASVs_Samples.pdf`, `18S_rarefaction_by_site.pdf`, `18S_rarefaction_by_fraction.pdf`
+
+**Part 3 — Rarefaction**  
+Rarefied to 17,869 reads (minimum library size). Seed = 42. Retains 5,852 / 7,089 ASVs (82.6%).
+
+**Part 4 — Alpha Diversity Metrics**  
+Observed richness, Shannon (H'), Simpson, Pielou's evenness (J'), Chao1, ACE, Margalef, and mean Jaccard dissimilarity calculated from rarefied data via `vegan`. Visualized as violin plots by site and fraction.
+
+*Output files:* `18S_diversity_indices_rarefied.csv`, `18S_alphaDiv_Locality_violin_rarefied.pdf`, `18S_alphaDiv_Fraction_violin_rarefied.pdf`
+
+**Part 5 — Linear Mixed-Effects Models (LMMs)**  
+Three analyses accounting for paired fraction structure (random effect: ARMS unit):
+- *Analysis 1:* Fraction effects — `Diversity ~ fraction + (1|ARMS_ID)`; sessile vs. pooled motile contrast
+- *Analysis 2:* Environmental effects — `Diversity ~ depth + turbidity + fraction + (1|ARMS_ID)`; marginal R² reported
+- *Analysis 3:* Site effects — `Diversity ~ fraction + sitelocality + (1|ARMS_ID)`; Tukey HSD post-hoc if significant
+
+*Output files:* `18S_Analysis1_Fraction_Effects_4metrics.csv`, `18S_Analysis2_Environmental_Effects_4metrics.csv`, `18S_Analysis3_Site_Effects_4metrics.csv`, conditional site comparison CSVs
+
+**Part 6 — Descriptive Statistics**  
+Summary tables (mean ± SE) by fraction and site for all four diversity metrics. Includes site rankings and full sample-level data.
+
+*Output files:* `TableS2A_Supplement_18S_Fraction_Stats.csv`, `TableS2_18S_Site_[metric].csv`, `TableS2_18S_Sample_Level_Data.csv`
+
+**Part 7 — 4th Root Transformation for Beta Diversity**  
+Converts raw counts to relative proportions then applies 4th-root transformation (`proportion^0.25`) to downweight numerically dominant ASVs. Creates fraction-specific subsets (all, sessile, motile, 100 µm, 500 µm) with raw, proportion, 4th-root, and presence/absence matrices.
+
+*Output files:* `18S_all_data_subsets.RData`, `biotic_clean_18S.RData`, `biotic_percs_18S_4th.RData`, `metadata_18S_FINAL.RData/.csv`
+
+**Part 8 — Beta Diversity Ordination (NMDS)**  
+NMDS on Bray-Curtis dissimilarity (k=2, max 1,000 iterations, 20 random starts). Ordinations for all samples, by site, by fraction, sessile only, and motile only. Visualized with 95% ellipses and environmental vectors.
+
+*Output files:* `18S_NMDS_AllSamples_BySite.pdf`, `18S_NMDS_AllSamples_ByFraction.pdf`, `18S_NMDS_Sessile.pdf`, `18S_NMDS_Motile.pdf`
+
+**Part 9 — PERMANOVA**  
+Bray-Curtis dissimilarity on 4th-root data, 999 permutations. Four model types:
+- Environmental baseline: `~ depth + turbidity`
+- Spatial: `~ latitude + longitude`
+- Combined: `~ depth + turbidity + latitude + longitude`
+- Site identity: `~ sitelocality`
+
+Conditional tests partition pure environmental vs. pure spatial variance. Pre-tested with PERMDISP. Run separately for all samples, sessile, motile, 100 µm, 500 µm.
+
+*Output files:* `18S_PERMANOVA_[subset].csv`
+
+**Part 10 — dbRDA**  
+Constrained ordination with hierarchical model series (individual predictors → combined → conditional). Restricted permutations within ARMS units. Reports sequential R² per predictor and unique contribution of turbidity beyond depth.
+
+**Part 11 — Distance Matrix Analyses**  
+Three complementary tests using Bray-Curtis (community), Euclidean on z-standardized env. variables (environmental distance), and least-cost geographic distance:
+- Simple Mantel (9,999 permutations)
+- Partial Mantel controlling for environment or geography
+- Multiple Regression on Distance Matrices (MRM)
+
+Run separately for all samples, sessile, and motile fractions.
+
+*Output files:* `18S_Mantel_Results_nopp.csv`, `18S_Partial_Mantel_Results_nopp.csv`, `18S_MRM_Results_nopp.csv`
+
+---
+
+## Part 2: Post-Taxonomic Analysis (`PostTaxa_18S.Rmd`)
+
+### Structure
+
+**Section 1 — Setup and Data Import**  
+Imports all input files, aligns taxonomy to ASV table, builds phyloseq object using 4th-root transformed proportions. Output directory: `./Taxa_Output_18S/`
+
+**Section 2 — Relative Abundance Plots (Classified Reads)**  
+Stacked bar plots of top 20 metazoan/rhodophyte phyla per sample (ordered by turbidity) and aggregated by site.
+
+*Output files:* `18S_Top20_Phyla_RelativeAbundance_bySample.pdf`, `18S_Top20_Phyla_RelativeAbundance_BySite.pdf`
+
+**Section 3 — Relative Abundance Plots (Including Unclassified Reads)**  
+Adds ASVs with no taxonomy hits as an "Unclassified" category.
+
+*Output files:* `18S_Top20_Phyla_RelativeAbundance_bySample_WITH_UNCLASSIFIED.pdf`, `18S_Top20_Phyla_RelativeAbundance_BySite_WITH_UNCLASSIFIED.pdf`
+
+**Section 4 — ANCOM-BC2 Differential Abundance**  
+Uses raw count data. Three sample subsets (all, motile, sessile) × two taxonomic levels (phylum, family) × three predictor sets:
+
+| Analysis | Formula | Test Type |
+|---|---|---|
+| Fraction effects | `~ fraction` | Global + pairwise |
+| Site effects | `~ sitelocality` | Global + pairwise |
+| Environmental effects | `~ depth + turbidity_std_rank` | Per-variable |
+
+Key parameters: `prv_cut = 0.10`, `p_adj_method = "BH"`, `pseudo_sens = TRUE`
+
+> ⚠️ ANCOM-BC2 runs are computationally intensive (10–30+ min per call). A recovery chunk reloads results from previously exported CSVs and a saved `.RData` phyloseq object if the session crashes.
+
+**Section 5 — Environmental Effects Visualization**  
+Phylum relative abundance barplots ordered by turbidity (cividis palette) and depth (mako palette) for motile and sessile fractions. Log₂ fold-change (LFC) barplots for all significant phyla.
+
+*Output files:* `Phylum_LFC_[subset]_Clean_18S.pdf/.png`, `[Fraction]_[Gradient]_Phyla_[palette].pdf`
+
+**Section 6 — Combined 18S + COI Phylum LFC Plots**  
+Overlays 18S turbidity effects (solid bars) with COI results (striped bars, from `COI_phylum_turbidity_simple.csv`).
+
+*Output files:* `Combined_18S_COI_Phylum_[subset].pdf/.png`
+
+**Section 7 — Functional Trait Analysis**  
+Maps families to nutritional strategy via `trait_mapping_QC_v4.csv`. Tests whether feeding mechanism predicts turbidity sensitivity, with focus on Fine Dead-End Microfilterers (FDM; sponges — predicted to decrease with turbidity) vs. Active Dead-End Sieves (ADS; bivalves and barnacles — predicted to increase with turbidity).
+
+*Output files:* `functional_group_summary.csv`, `suspension_mechanism_summary.csv`, `functional_analysis_combined.pdf`, and related plots
 
 ---
 
 ## Key Variables Reference
 
-### Phyloseq Objects:
-- `cycle18Sdat` - Original non-rarefied phyloseq (6,332 ASVs, 114 samples)
-- `cycle18Sdat0` - Pre-filtering phyloseq with zero-abundance ASVs (7,089 ASVs)
-- `d_r17k` - Rarefied phyloseq (5,852 ASVs, 17,869 reads/sample)
-- `cycle18Sdat_4th` - 4th root transformed non-rarefied phyloseq
-- `d_r17k_4th` - 4th root transformed rarefied phyloseq
+### Phyloseq Objects
 
-### ASV Matrices:
-- `biotic_18S` - Raw count matrix (ASVs × samples)
-- `biotic_clean_18S` - Zero-abundance ASVs removed
-- `biotic_percs_18S_4th` - 4th root transformed proportions
-- `biotic_sessile`, `biotic_motile` - Fraction-specific matrices
+| Object | Description |
+|---|---|
+| `cycle18Sdat` | Original non-rarefied phyloseq (6,332 ASVs, 114 samples) |
+| `cycle18Sdat0` | Pre-filtering with zero-abundance ASVs (7,089 ASVs) |
+| `d_r17k` | Rarefied phyloseq (5,852 ASVs, 17,869 reads/sample) |
+| `cycle18Sdat_4th` | 4th-root transformed non-rarefied |
+| `d_r17k_4th` | 4th-root transformed rarefied |
 
-### Metadata:
-- `metadata_ARMS` - Original imported metadata
-- `metadata_18S` - Enhanced with diversity metrics
-- `meta_dr17k` - Metadata for rarefied data (matches `d_r17k`)
-- `meta_consistent` - Final synchronized metadata for all analyses
-### Metadata Evolution
+### Metadata Versions
 
-| Version | File/Object | Source | Added Columns | Total Cols | Saved As | Use Case |
-|---------|------------|--------|---------------|------------|----------|----------|
-| 1 | `metadata_ARMS_env.csv` | External | N/A | ~44 | CSV input | **Upload to GitHub** |
-| 2 | `metadata_ARMS` | Import + sync | +1 fileID_18S | ~45 | metadata_ARMS.Rdata | ASV table matching |
-| 3 | `metadata_18S` | + diversity | +2 abundance/richness | ~47 | basic_18S_pretaxa_inputs.Rdata | Phyloseq creation |
-| 4 | `meta_dr17k` | + rarefied diversity | +9 diversity metrics, +2 ARMS_ID | ~56 | meta_dr17k.Rdata | Alpha diversity LMMs |
-| 5 | `meta_consistent` | Alias of #4 | None (copy) | ~56 | metadata_18S_FINAL.RData/CSV | **Final all analyses** |
-
-### Sample Vectors:
-- `samples18S_100` - Sample IDs for 100 µm fraction (n = 38)
-- `samples18S_500` - Sample IDs for 500 µm fraction (n = 38)
-- `samples18S_sessile` - Sample IDs for sessile fraction (n = 38)
-- `samples18S_motile` - Combined motile sample IDs (n = 76)
-
----
-
-## Citation
+| Version | Object | Key Additions |
+|---|---|---|
+| 1 | `metadata_ARMS_env.csv` | Raw input |
+| 2 | `metadata_ARMS` | + `fileID_18S` for ASV table matching |
+| 3 | `metadata_18S` | + abundance/richness columns |
+| 4 | `meta_dr17k` | + 9 diversity metrics, `ARMS_ID_corrected` |
+| 5 | `meta_consistent` | Alias of v4; used for all final analyses |
 
 
-*[Manuscript citation once published]*
 
-**Key References:**
-- Rarefaction: McMurdie PJ, Holmes S (2014) Waste not, want not: why rarefying microbiome data is inadmissible. PLoS Comput Biol 10(4):e1003531
-- Phyloseq: McMurdie PJ, Holmes S (2013) phyloseq: An R package for reproducible interactive analysis and graphics of microbiome census data. PLoS ONE 8(4):e61217
-- Vegan: Oksanen J et al. (2020) vegan: Community Ecology Package. R package version 2.5-7
-- PERMANOVA: Anderson MJ (2001) A new method for non-parametric multivariate analysis of variance. Austral Ecology 26:32-46
-- 4th root transformation: Clarke KR, Gorley RN (2015) PRIMER v7: User Manual/Tutorial. PRIMER-E Ltd, Plymouth
-
----
-
-## Troubleshooting
-
-### Common Issues:
-
-**1. "cannot open file" errors**
-- Ensure all input files are in the correct directories
-- Check that relative paths are used (not absolute paths)
-- Verify file names match exactly (case-sensitive)
-
-**2. Sample order mismatches**
-- Check that `all(colnames(ASV_table) == rownames(metadata))` returns `TRUE`
-- Use `metadata <- metadata[colnames(ASV_table), ]` to reorder
-
-**3. Rarefaction removes too many ASVs**
-- Check library size distribution: `summary(sample_sums(phyloseq_object))`
-- Consider less conservative rarefaction depth if appropriate
-
-**4. NMDS fails to converge (high stress)**
-- Increase `trymax` to 2000
-- Check for outlier samples: `plot(sample_sums(phyloseq_object))`
-- Consider removing samples with very low reads
-
-**5. PERMANOVA p-values all = 0.001**
-- Increase permutations to 9999: `permutations = 9999`
-- Not a problem if effect is genuinely strong
-
-**6. LMM singular fit warnings**
-- Random effect variance near zero (expected for some metrics)
-- Not problematic - fixed effects are still valid
-- Report warning in manuscript methods
 
