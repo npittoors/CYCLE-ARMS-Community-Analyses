@@ -1,0 +1,937 @@
+---
+title: "seascape_18S"
+author: "Nicole Pittoors"
+date: "2024-09-10"
+output: html_document
+---
+#Set working directory
+
+setwd("Path/to/env_data")
+
+Load libraries
+```{r}
+library(ncdf4)
+library(lubridate)
+library(RColorBrewer)
+library(lattice)
+library(dplyr)
+library(oce)
+library(raster)
+library(seacarb)
+library(rnaturalearth) # library to add polygons of the countries to a map
+library(rnaturalearthdata) # library to add polygons of the countries to a map
+```
+
+Import geographic coordinates files
+```{r}
+#by site
+# we change the order of the columns, as longitude generally is the first column and latitude the second one.
+coord_sites <-data.frame(row.names=unique(metadata_ARMS$sitelocality))
+b<-numeric(length(unique(metadata_ARMS$sitelocality)))
+c<-numeric(length(unique(metadata_ARMS$sitelocality)))
+for(i in 1:length(rownames(coord_sites))){
+ b[i]<-mean(metadata_ARMS$latitude[metadata_ARMS$sitelocality==rownames(coord_sites)[i]])
+  c[i]<-mean(metadata_ARMS$longitude[metadata_ARMS$sitelocality==rownames(coord_sites)[i]])
+}
+coord_sites$longitude<-c
+coord_sites$latitude<-b
+#by individual
+coord_ind <- metadata_ARMS[,c("longitude","latitude")]
+# we can visualize the content of the table:
+head(coord_sites)
+head(coord_ind)
+```
+
+========================
+Process Oceancolour data
+========================
+Open optics NetDCF file downloaded from Oceancolour
+Variables: 
+1) "BBP" = volume_backwards_scattering_coefficient_of_radiative_flux_in_sea_water_due_to_particles
+  Particulate back-scattering coefficient at 443 nm - Mean of the binned pixels float BBP_uncertainty[longitude,latitude,time]
+2) "BBP_uncertainty" = volume_absorption_coefficient_of_radiative_flux_in_sea_water_due_to_dissolved_organic_matter_and_non_algal_particles
+  Particulate back-scattering coefficient at 443 nm - Uncertainty estimation float CDM[longitude,latitude,time]
+3) "CDM" = Coloured dissolved and detrital organic materials - Mean of the binned pixels float CDM_uncertainty[longitude,latitude,time]
+4) "CDM_uncertainty" = Coloured dissolved and detrital organic materials - Uncertainty estimation float flags[longitude,latitude,time]
+5) status flags
+```{r}
+nc_file_optics <- nc_open("cmems_obs-oc_glo_bgc-optics_my_l4-multi-4km_P1M_1725914557874.nc")
+print(nc_file)
+```
+
+Open plankton NetDC file downloaded from Oceancolour
+Variables:
+1) mass_concentration_of_chlorophyll_a_in_sea_water
+  Chlorophyll-a concentration - Mean of the binned pixels
+2) Chlorophyll-a concentration - Uncertainty estimation
+```{r}
+nc_file_plankton <- nc_open("cmems_obs-oc_glo_bgc-plankton_my_l4-multi-4km_P1M_1725914300477.nc")
+print(nc_file_plankton)
+```
+
+Open primary productivity (PP) NetDC file downloaded from Oceancolour
+Variables:
+1) primary_productivity_of_biomass_expressed_as_carbon
+  Primary Productivity - Mean of the binned pixels
+2) Primary Productivity - Uncertainty estimation
+3) status_flag
+```{r}
+nc_file_PP <- nc_open("cmems_obs-oc_glo_bgc-pp_my_l4-multi-4km_P1M_1725914400069.nc")
+print(nc_file_PP)
+```
+
+Open transp NetDC file downloaded from Oceancolour
+Open primary productivity (PP) NetDC file downloaded from Oceancolour
+Variables:
+1) KD490 = Volume attenuation coefficient of downwelling radiative flux in sea water
+2) KD490_uncertainty = Diffuse attenuation coefficient - Uncertainty estimation
+3) SPM (g/m^3) = Mass concentration of suspended matter in sea water
+4) SPM_uncertainty (%)= Inorganic suspended particulate matter in sea water - Uncertainty estimation
+5) ZSD (m) = Secchi depth of sea water
+6) ZSD_uncertainty (%) = Secchi disk depth - Uncertainty estimation
+7) flags = status_flag
+```{r}
+nc_file_transp <- nc_open("cmems_obs-oc_glo_bgc-transp_my_l4-multi-4km_P1M_1726252158404.nc")
+print(nc_file_transp)
+```
+
+
+Surface primary productivity (_PP)
+1) Convert time variable, current time is seconds since a 1900s date
+```{r}
+# Extract time variable and units from the NetCDF file
+time <- nc_file_PP$dim[[3]]$vals
+t_units_PP <- ncatt_get(nc_file_PP, "time", "units")
+
+# Extract the reference date from the units string (should be something like "seconds since 1970-01-01 00:00:00")
+# The third element contains the reference date (split by space)
+t_ustr <- strsplit(t_units_PP$value, " ")[[1]]
+reference_date <- ymd_hms(paste(t_ustr[3], t_ustr[4]))  # This will be "1970-01-01 00:00:00" by default
+
+# Convert the time from seconds since the reference date
+date <- reference_date + seconds(time)
+
+# Print the results
+date
+```
+
+2) Convert the .nc file to .tiff while adding the 'date' attribute that was just created
+```{r}
+#Extract the variables
+PP_data <- ncvar_get(nc_file_PP, "PP")
+lat <- ncvar_get(nc_file_PP, "latitude")
+lon <- ncvar_get(nc_file_PP, "longitude")
+time <- ncvar_get(nc_file_PP, "time")
+
+#Convert time to date
+time_units <- ncatt_get(nc_file_PP, "time", "units")
+origin <- sub("seconds since ", "", time_units$value)
+dates <- as.POSIXct(time, origin=origin, tz="UTC")
+
+#Create a RasterBrick Object- combine the PP data and the coordinates into a raster stack
+PP_raster <- brick(PP_data, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +datum=WGS84"))
+
+# Write the Raster to a GeoTIFF
+writeRaster(PP_raster, "PP_data.tif", format="GTiff",overwrite = TRUE )
+```
+
+Calculate the mean and standard deviation of PP at sampling sites by extracting the PP values from the raster for each site in coord_sites dataframe following these three steps:
+	1.	Extract PP Values for Sampling Sites: Extract PP data from the raster at the coordinates from coord_sites.
+	2.	Calculate Mean and Standard Deviation: Compute the statistics for each site over time.
+	3.	Store Results: Store the results for mean and standard deviation in your metadata_ARMS object or a new object.
+```{r}
+# Load necessary libraries
+#library(raster)
+
+# Loop through each site to extract the data for mean and standard deviation calculation
+for (site in rownames(coord_sites)) {
+  
+  # Get the corresponding latitude and longitude for the site
+  site_lat <- coord_sites[site, "latitude"]
+  site_lon <- coord_sites[site, "longitude"]
+  
+  # Find the nearest raster cell to the site's coordinates
+  cell_index <- cellFromXY(PP_raster, c(site_lon, site_lat))
+  
+  # Extract the CHL time series data for this specific cell (site)
+  PP_site_data <- extract(PP_raster, cell_index, df = TRUE)
+  
+  # Calculate mean and standard deviation across the time dimension
+  PP_site_mean <- apply(PP_site_data[, -1], 1, mean, na.rm = TRUE)
+  PP_site_sd <- apply(PP_site_data[, -1], 1, sd, na.rm = TRUE)
+  
+  # Add the extracted data back to your metadata_ARMS or store in a new dataframe
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "PP_mean"] <- PP_site_mean
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "PP_sd"] <- PP_site_sd
+}
+
+# Print the updated metadata to check if values are stored correctly
+head(metadata_ARMS)
+
+# Optionally, save your updated metadata if necessary
+#write.csv(metadata_ARMS, "updated_metadata.csv", row.names = FALSE)
+
+# Confirm the process
+#print("PP mean and standard deviation added to metadata_ARMS.")
+```
+
+Chlorophyll A Concentration PLANKTON CHL
+1) Convert time variable, current time is seconds since a 1900s date
+```{r}
+# Extract time variable and units from the NetCDF file
+time <- nc_file_plankton$dim[[3]]$vals
+t_units_plankton <- ncatt_get(nc_file_plankton, "time", "units")
+
+# Extract the reference date from the units string (should be something like "seconds since 1970-01-01 00:00:00")
+# The third element contains the reference date (split by space)
+t_ustr <- strsplit(t_units_plankton$value, " ")[[1]]
+reference_date <- ymd_hms(paste(t_ustr[3], t_ustr[4]))  # This will be "1970-01-01 00:00:00" by default
+
+# Convert the time from seconds since the reference date
+date <- reference_date + seconds(time)
+
+# Print the results
+date
+```
+
+2) Convert the .nc file to .tiff while adding the 'date' attribute that was just created
+```{r}
+#Extract the variables
+CHL_data <- ncvar_get(nc_file_plankton, "CHL")
+lat <- ncvar_get(nc_file_plankton, "latitude")
+lon <- ncvar_get(nc_file_plankton, "longitude")
+time <- ncvar_get(nc_file_plankton, "time")
+
+#Convert time to date
+time_units <- ncatt_get(nc_file_plankton, "time", "units")
+origin <- sub("seconds since ", "", time_units$value)
+dates <- as.POSIXct(time, origin=origin, tz="UTC")
+
+#Create a RasterBrick Object- combine the CHL data and the coordinates into a raster stack
+CHL_raster <- brick(CHL_data, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +datum=WGS84"))
+
+# Write the Raster to a GeoTIFF
+writeRaster(CHL_raster, "CHL_data.tif", format="GTiff",overwrite = TRUE )
+```
+
+Calculate the mean and standard deviation of CHL at sampling sites by extracting the CHL values from the raster for each site in coord_sites dataframe following these three steps:
+	1.	Extract CHL Values for Sampling Sites: Extract CHL data from the raster at the coordinates from coord_sites.
+	2.	Calculate Mean and Standard Deviation: Compute the statistics for each site over time.
+	3.	Store Results: Store the results for mean and standard deviation in your metadata_ARMS object or a new object.
+```{r}
+# Load necessary libraries
+#library(raster)
+
+# Loop through each site to extract the data for mean and standard deviation calculation
+for (site in rownames(coord_sites)) {
+  
+  # Get the corresponding latitude and longitude for the site
+  site_lat <- coord_sites[site, "latitude"]
+  site_lon <- coord_sites[site, "longitude"]
+  
+  # Find the nearest raster cell to the site's coordinates
+  cell_index <- cellFromXY(CHL_raster, c(site_lon, site_lat))
+  
+  # Extract the CHL time series data for this specific cell (site)
+  CHL_site_data <- extract(CHL_raster, cell_index, df = TRUE)
+  
+  # Calculate mean and standard deviation across the time dimension
+  CHL_site_mean <- apply(CHL_site_data[, -1], 1, mean, na.rm = TRUE)
+  CHL_site_sd <- apply(CHL_site_data[, -1], 1, sd, na.rm = TRUE)
+  
+  # Add the extracted data back to your metadata_ARMS or store in a new dataframe
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "CHL_mean"] <- CHL_site_mean
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "CHL_sd"] <- CHL_site_sd
+}
+
+# Print the updated metadata to check if values are stored correctly
+head(metadata_ARMS)
+
+# Optionally, save your updated metadata if necessary
+write.csv(metadata_ARMS, "./env_dataPP_metadata_ARMS.csv", row.names = FALSE)
+
+# Confirm the process
+#print("CHL mean and standard deviation added to metadata_ARMS.")
+```
+
+Inorganic suspended particulates TRANSP SPM
+1) Convert time variable, current time is seconds since a 1900s date
+```{r}
+# Extract time variable and units from the NetCDF file
+time <- nc_file_transp$dim[[3]]$vals
+t_units_transp <- ncatt_get(nc_file_transp, "time", "units")
+
+# Extract the reference date from the units string (should be something like "seconds since 1970-01-01 00:00:00")
+# The third element contains the reference date (split by space)
+t_ustr <- strsplit(t_units_transp$value, " ")[[1]]
+reference_date <- ymd_hms(paste(t_ustr[3], t_ustr[4]))  # This will be "1970-01-01 00:00:00" by default
+
+# Convert the time from seconds since the reference date
+date <- reference_date + seconds(time)
+
+# Print the results
+date
+```
+
+2) Convert the .nc file to .tiff while adding the 'date' attribute that was just created
+```{r}
+#Extract the variables
+SPM_data <- ncvar_get(nc_file_transp, "SPM")
+lat <- ncvar_get(nc_file_transp, "latitude")
+lon <- ncvar_get(nc_file_transp, "longitude")
+time <- ncvar_get(nc_file_transp, "time")
+
+#Convert time to date
+time_units <- ncatt_get(nc_file_transp, "time", "units")
+origin <- sub("seconds since ", "", time_units$value)
+dates <- as.POSIXct(time, origin=origin, tz="UTC")
+
+#Create a RasterBrick Object- combine the SPM data and the coordinates into a raster stack
+SPM_raster <- brick(SPM_data, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +datum=WGS84"))
+
+# Write the Raster to a GeoTIFF
+writeRaster(SPM_raster, "SPM_data.tif", format="GTiff",overwrite = TRUE )
+```
+
+3) Calculate the mean and standard deviation of SPM at sampling sites by extracting the SPM values from the raster for each site in coord_sites
+```{r}
+# Loop through each site to extract the data for mean and standard deviation calculation
+for (site in rownames(coord_sites)) {
+  
+  # Get the corresponding latitude and longitude for the site
+  site_lat <- coord_sites[site, "latitude"]
+  site_lon <- coord_sites[site, "longitude"]
+  
+  # Find the nearest raster cell to the site's coordinates
+  cell_index <- cellFromXY(SPM_raster, c(site_lon, site_lat))
+  
+  # Extract the CHL time series data for this specific cell (site)
+  SPM_site_data <- extract(SPM_raster, cell_index, df = TRUE)
+  
+  # Calculate mean and standard deviation across the time dimension
+  SPM_site_mean <- apply(SPM_site_data[, -1], 1, mean, na.rm = TRUE)
+  SPM_site_sd <- apply(SPM_site_data[, -1], 1, sd, na.rm = TRUE)
+  
+  # Add the extracted data back to your metadata_ARMS or store in a new dataframe
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "SPM_OM"] <- SPM_site_mean
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "SPM_OSD"] <- SPM_site_sd
+}
+
+# Print the updated metadata to check if values are stored correctly
+head(metadata_ARMS)
+```
+
+
+Particulate back scattering coefficient OPTICS
+1) Convert time variable, current time is seconds since a 1900s date
+```{r}
+# Extract time variable and units from the NetCDF file
+time <- nc_file_optics$dim[[3]]$vals
+t_units_optics <- ncatt_get(nc_file_optics, "time", "units")
+
+# Extract the reference date from the units string (should be something like "seconds since 1970-01-01 00:00:00")
+# The third element contains the reference date (split by space)
+t_ustr <- strsplit(t_units_optics$value, " ")[[1]]
+reference_date <- ymd_hms(paste(t_ustr[3], t_ustr[4]))  # This will be "1970-01-01 00:00:00" by default
+
+# Convert the time from seconds since the reference date
+date <- reference_date + seconds(time)
+
+# Print the results
+date
+```
+
+2) Convert the .nc file to .tiff while adding the 'date' attribute that was just created
+```{r}
+#Extract the variables
+bbp_data <- ncvar_get(nc_file_optics, "BBP")
+lat <- ncvar_get(nc_file_optics, "latitude")
+lon <- ncvar_get(nc_file_optics, "longitude")
+time <- ncvar_get(nc_file_optics, "time")
+
+#Convert time to date
+time_units <- ncatt_get(nc_file_optics, "time", "units")
+origin <- sub("seconds since ", "", time_units$value)
+dates <- as.POSIXct(time, origin=origin, tz="UTC")
+
+#Create a RasterBrick Object- combine the BBP data and the coordinates into a raster stack
+BBP_raster <- brick(bbp_data, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +datum=WGS84"))
+
+# Write the Raster to a GeoTIFF
+writeRaster(BBP_raster, "BBP_data.tif", format="GTiff",overwrite = TRUE )
+```
+
+3) Calculate the mean and standard deviation of BBP at sampling sites by extracting the BBP values from the raster for each site in coord_sites
+```{r}
+# Loop through each site to extract the data for mean and standard deviation calculation
+for (site in rownames(coord_sites)) {
+  
+  # Get the corresponding latitude and longitude for the site
+  site_lat <- coord_sites[site, "latitude"]
+  site_lon <- coord_sites[site, "longitude"]
+  
+  # Find the nearest raster cell to the site's coordinates
+  cell_index <- cellFromXY(BBP_raster, c(site_lon, site_lat))
+  
+  # Extract the CHL time series data for this specific cell (site)
+  BBP_site_data <- extract(BBP_raster, cell_index, df = TRUE)
+  
+  # Calculate mean and standard deviation across the time dimension
+  BBP_site_mean <- apply(BBP_site_data[, -1], 1, mean, na.rm = TRUE)
+  BBP_site_sd <- apply(BBP_site_data[, -1], 1, sd, na.rm = TRUE)
+  
+  # Add the extracted data back to your metadata_ARMS or store in a new dataframe
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "BBP_OM"] <- BBP_site_mean
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "BBP_OSD"] <- BBP_site_sd
+}
+
+# Print the updated metadata to check if values are stored correctly
+head(metadata_ARMS)
+```
+
+CDM OPTICS
+1) Convert time variable, current time is seconds since a 1900s date
+```{r}
+# Extract time variable and units from the NetCDF file
+time <- nc_file_optics$dim[[3]]$vals
+t_units_optics <- ncatt_get(nc_file_optics, "time", "units")
+
+# Extract the reference date from the units string (should be something like "seconds since 1970-01-01 00:00:00")
+# The third element contains the reference date (split by space)
+t_ustr <- strsplit(t_units_optics$value, " ")[[1]]
+reference_date <- ymd_hms(paste(t_ustr[3], t_ustr[4]))  # This will be "1970-01-01 00:00:00" by default
+
+# Convert the time from seconds since the reference date
+date <- reference_date + seconds(time)
+
+# Print the results
+date
+```
+
+2) Convert the .nc file to .tiff while adding the 'date' attribute that was just created
+```{r}
+#Extract the variables
+CDM_data <- ncvar_get(nc_file_optics, "CDM")
+lat <- ncvar_get(nc_file_optics, "latitude")
+lon <- ncvar_get(nc_file_optics, "longitude")
+time <- ncvar_get(nc_file_optics, "time")
+
+#Convert time to date
+time_units <- ncatt_get(nc_file_optics, "time", "units")
+origin <- sub("seconds since ", "", time_units$value)
+dates <- as.POSIXct(time, origin=origin, tz="UTC")
+
+#Create a RasterBrick Object- combine the CDM data and the coordinates into a raster stack
+CDM_raster <- brick(CDM_data, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat), crs=CRS("+proj=longlat +datum=WGS84"))
+
+# Write the Raster to a GeoTIFF
+writeRaster(CDM_raster, "CDM_data.tif", format="GTiff",overwrite = TRUE )
+```
+
+3) Calculate the mean and standard deviation of CDM at sampling sites by extracting the CDM values from the raster for each site in coord_sites
+```{r}
+# Loop through each site to extract the data for mean and standard deviation calculation
+for (site in rownames(coord_sites)) {
+  
+  # Get the corresponding latitude and longitude for the site
+  site_lat <- coord_sites[site, "latitude"]
+  site_lon <- coord_sites[site, "longitude"]
+  
+  # Find the nearest raster cell to the site's coordinates
+  cell_index <- cellFromXY(CDM_raster, c(site_lon, site_lat))
+  
+  # Extract the CHL time series data for this specific cell (site)
+  CDM_site_data <- extract(CDM_raster, cell_index, df = TRUE)
+  
+  # Calculate mean and standard deviation across the time dimension
+  CDM_site_mean <- apply(CDM_site_data[, -1], 1, mean, na.rm = TRUE)
+  CDM_site_sd <- apply(CDM_site_data[, -1], 1, sd, na.rm = TRUE)
+  
+  # Add the extracted data back to your metadata_ARMS or store in a new dataframe
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "CDM_OM"] <- CDM_site_mean
+  metadata_ARMS[metadata_ARMS$sitelocality == site, "CDM_OSD"] <- CDM_site_sd
+}
+
+# Print the updated metadata to check if values are stored correctly
+head(metadata_ARMS)
+```
+
+3) Close the Net CDF file
+```{r}
+nc_close(nc_file)
+```
+
+
+============================
+Load Environmental Matrix
+============================
+
+```{r}
+EnvMatrix <- read.csv("./EnMatrix_site.csv",row.names=1, sep=",")
+
+# Convert temp, salinity, and depth columns to numeric
+EnvMatrix$temp <- as.numeric(EnvMatrix$temp)
+EnvMatrix$salinity <- as.numeric(EnvMatrix$salinity)
+EnvMatrix$depth <- as.numeric(EnvMatrix$depth)
+
+# Check if the variables were successfully converted
+str(EnvMatrix)
+```
+
+
+==============================================
+Summarize patterns of environmental variation
+==============================================
+
+1) Perform a Principal Component analysis of the environmental matrix
+- A principal component analysis (PCA) is a statistical method to summarize the complexity of a numerical matrix.
+- Applied to an environmental matrix, for example, the PCA informs on 1) which sampling sites show similar environmental conditions  and 2) which environmental conditions are correlated (i.e. show similar spatial patterns) 
+
+Plot and run correlation test on environmental variables
+```{r}
+library(psych)
+library(Hmisc)
+library(corrplot)
+pairs.panels(EnvMatrix, scale = TRUE)
+site.rcorr = rcorr(as.matrix(EnvMatrix))
+site.coeff = site.rcorr$r
+site.p = site.rcorr$P
+corrplot(site.coeff,p.mat=site.p)
+```
+
+```{r}
+# Load the correlation coefficients from CSV
+site_coeff_from_csv <- read.csv("./site_coefficients.csv", row.names = 1)
+
+# Convert to matrix if it's loaded as a data frame
+site_coeff_matrix <- as.matrix(site_coeff_from_csv)
+
+# Create a basic correlation plot
+corplot<- corrplot(site_coeff_matrix, method = "color", 
+         tl.col = "black", # Text label color
+         addCoef.col = "black") # Add coefficient values
+
+pdf("correlation_plot_high_res.pdf", width = 16, height = 12)
+corrplot(site_coeff_matrix, method = "color", 
+         tl.col = "black",
+         addCoef.col = "black",
+         mar = c(1, 1, 1, 1))  # Adjust margins if needed
+dev.off()
+```
+
+
+
+```{r}
+# Load necessary libraries
+#library(corrplot)
+
+# Define function to calculate p-values for correlations
+cor.mtest <- function(mat, conf.level = 0.95) {
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      tmp <- cor.test(mat[, i], mat[, j], conf.level = conf.level)
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# Load your environmental matrix (replace with actual data loading code)
+# EnvMatrix_site <- read.csv("your_file.csv")  # Example: Load from CSV
+
+# Compute correlation matrix
+site.coeff <- cor(EnvMatrix, use = "pairwise.complete.obs", method = "pearson")
+
+# Compute p-values
+site.p <- cor.mtest(EnvMatrix)
+
+# Plot the correlation matrix
+corrplot(site.coeff, p.mat = site.p, sig.level = 0.05, method = "color", type = "upper", 
+         addCoef.col = "black", tl.col = "black", tl.srt = 45, number.cex = 0.7)
+```
+
+```{r}
+# Install and load ggcorrplot
+# install.packages("ggcorrplot")
+library(ggcorrplot)
+
+# Plot correlation matrix with ggcorrplot
+env_cor_plot<- ggcorrplot(site.coeff, method = "circle", type = "upper", p.mat = site.p, 
+           sig.level = 0.05, lab = TRUE)
+
+# Write correlation matrix (site.coeff) to .csv
+write.csv(site.coeff, file = "./site_coefficients.csv", row.names = TRUE)
+```
+
+Subset data to non-highly correlated variables
+```{r}
+EnvMatrix_reduced = subset (EnvMatrix, select = c(salinity,depth,trubidity_std_rank,longitude,PP_mean,temp_HOBO_OM))
+pairs.panels(EnvMatrix_reduced, scale = TRUE)
+```
+EnvMatrix_reduced
+salinity depth trubidity_std_rank longitude    SPM_OM   PP_mean temp_HOBO_OM
+Alderdice_coral      36.41000    82          11.285714 -92.00577 0.3505688  607.4360     20.74898
+Alderdice_background 36.44000    82          11.714286 -92.00566 0.3505688  607.4360     20.66798
+Alderdice_shallow    36.31667    66           3.285714 -91.99257 0.3519777  606.3403     22.07339
+Bright_coral         36.29200    83           7.428571 -93.27030 0.3537832  417.8301     20.60550
+Bright_background    36.29333    83           6.857143 -93.27022 0.3537832  417.8301     20.73661
+Bright_shallow       36.31182    65           4.142857 -93.27173 0.3528762  417.8301     21.64840
+Diaphus_background   35.49667    82           5.285714 -90.70140 0.3543301 1130.9303     20.97211
+Diaphus_coral        35.34000    81           6.428571 -90.70141 0.3543301 1130.9303     20.99291
+EFGB_shallow         36.28000    55           2.428571 -93.60958 0.3484201  395.8951     22.55360
+EFGB_deep            36.13667    81           5.857143 -93.62013 0.3526149  395.8951     20.76290
+McGrail_coral        36.43333    85           2.000000 -92.58129 0.3494234  502.7808     20.62179
+Stetson_coral        36.22833    54          11.285714 -94.30297 0.3492222  378.0407     22.14335
+
+
+Save .Rdata
+```{r}
+save(EnvMatrix_reduced,file='./EnvMatrix_reduced.Rdata')
+```
+
+Apply scale transformation to every column of the matrix. 
+- This is necessary since the downstream analysis is sensitive to the unit scales of the different environmental variables
+- By using the scale function, all the environmental variables are standardized to an identical scale
+```{r}
+sEnvMatrix = scale(EnvMatrix_reduced, center = T, scale = T)
+```
+
+Take a look at what the dataset looked like before the standardization of the unites..
+```{r}
+boxplot(EnvMatrix_reduced)
+```
+
+.. .and after scale transformation
+```{r}
+boxplot(sEnvMatrix)
+```
+
+Compute a heatmap of the environmental matrix to understand why we need a PCA
+Columns correspond to different environmental variables, the rows to the different sampling locations
+The heatmap highlights similarities between variables and between sampling sites.
+```{r}
+heatmap(sEnvMatrix)
+```
+
+# Creating figures for publication
+```{r}
+# Load the CSV file
+env_data <- read.csv("./env_data/EnMatrix_site.csv", row.names = 1)
+
+env_matrix <- as.matrix(env_data)
+
+# Create the yellow-orange-red color palette
+heat_colors <- colorRampPalette(c("#FFFFCC", "#FED976", "#FD8D3C", "#E31A1C", "#800026"))(100)
+
+# Create full heatmap with all variables
+pdf("all_variables_heatmap.pdf", width = 12, height = 10)
+heatmap(env_matrix, 
+        scale = "column",  
+        col = heat_colors,  
+        margins = c(10, 8),
+        main = "Heatmap of All Environmental Variables")
+dev.off()
+
+# For the selected variables, use the correct column names from your data
+selected_vars <- env_matrix[, c("trubidity_std_rank", "depth", "PP_mean")]
+
+pdf("selected_variables_heatmap.pdf", width = 8, height = 10)
+heatmap(selected_vars, 
+        scale = "column",
+        col = heat_colors,
+        margins = c(5, 8),
+        main = "Heatmap of Selected Variables")
+dev.off()
+```
+
+
+The goal of the PCA is to create proxy variables that represent the combination of correlated variables. 
+These proxy variables are called principal components. 
+By calculating principal components, we will be able to describe the environmental variation of the matrix using less variables. 
+We can use the prcomp() function to perform the principal component analysis.
+```{r}
+ePCA = prcomp(sEnvMatrix)
+
+# The principal components can be found in the $x matrix
+ePCA$x
+```
+
+Check the correlation of principal components are correlated. They should be non-correlated and therefore describe non-overlapping patterns of overlapping data.
+```{r}
+cor(ePCA$x)
+```
+
+The principal components are sorted based on the % of variance that they can explain. 
+Plot the first two PCs
+This plot informs us that according to the main axis of environmental variation (PC1), sites
+```{r}
+plot(ePCA$x[,1:2], cex=0.5)
+text(ePCA$x[,1:2], labels = rownames(EnvMatrix_reduced)) # add label of sampling site identifier 
+```
+
+What does this main axis of variation mean? We can answer this by looking at another matrix stored in the ePCA object: the rotation matrix
+This matrix informs us on which environmental variables participate to the composition of each principal components. The contribution of each variable is called the "loading"
+```{r}
+ePCA$rotation
+```
+
+We can visualize this information for PC1:
+```{r}
+barplot(ePCA$rotation[,'PC1'], las =2, main='PC1-loadings')
+```
+
+for PC2:
+```{r}
+barplot(ePCA$rotation[,'PC2'], las =2, main='PC2-loadings')
+```
+
+PC1 is just one of many principal components, each explaining a different contrast of environmental conditions. 
+We can quantify the % of total variation explained by PC1 by looking at the summary of the PCA.
+The second row describes the proportion of variance explained by each principal component.
+```{r}
+S=summary(ePCA)
+S
+```
+
+We can therefore plot the % explained by each component as
+```{r}
+plot(S$importance[2,], ylab='% of explained variance', xlab='#PC')
+```
+
+WE can also visualize this as a cumulative plot (he third row of the summary)
+```{r}
+plot(S$importance[3,], ylab='% of explained variance', xlab='#PC', ylim=c(0,1))
+abline(h=0.9)
+```
+
+===========================================
+Hierarchical clustering
+===========================================
+Load CSV with environmental measurements (reduced) for each ARMS, this is necessary for comparing geographic and environmental distance to bray-curtis dissimilarity. 08/22/25- Corrected SH ID to corresponding env values
+```{r}
+EnvMatrix_ind <- read.csv("./EnvMatrix_ind_corrected.csv",row.names=1, sep=",")
+# Convert to dataframe
+EnvMatrix_ind <- as.data.frame(EnvMatrix_ind)
+# Scale transform around zero
+sEnvMatrix_ind = scale(EnvMatrix_ind, center = T, scale = T)
+boxplot(sEnvMatrix_ind)
+```
+
+
+
+##Calculating Environmental Distances
+
+1) Define the environmental variables we want to use to define the (dis-)similarity between sites and calculate the euclidean environmental distance based on these variables:
+"salinity", "depth", "trubidity_std_rank", "longitude", "PP_mean", "temp_HOBO_OM"   
+```{r}
+depth_dist <- dist(EnvMatrix_ind$depth)
+turb_dist <- dist(EnvMatrix_ind$turbidity_std_rank)
+PP_dist <- dist(EnvMatrix_ind$PP_mean)
+#temp_dist <- dist(EnvMatrix_ind$temp_mean)
+```
+
+2) Calculate the environmental distances while considering all the environmental variables in the dataset
+You MUST use the scaled variables
+```{r}
+env_dist <- dist(sEnvMatrix_ind)
+env_dist
+# Convert the distance matrix to a data frame
+env_dist_df <- as.data.frame(as.matrix(env_dist))
+# Write the data frame to a CSV file to view full matrix output
+write.csv(env_dist_df, "./env_dist_matrix.csv", row.names = TRUE)
+```
+
+3) Calculate environmnetal distances based on some of the principal components SKIPPING
+```{r}
+dist(ePCA$x[1,2])
+```
+
+
+#Calculate environmental distances for sessile fraction samples
+```{r}
+# Subset the EnMatrix_ind dataframe
+EnvMatrix_sessile <- EnvMatrix_ind[rownames(EnvMatrix_ind) %in% sessile_rows, ]
+
+# View the subset
+head(EnvMatrix_sessile)
+
+sEnvMatrix_sessile = scale(EnvMatrix_sessile, center = T, scale = T) # Scale transform
+sEnvMatrix_sessile <- as.data.frame(sEnvMatrix_sessile) # Convert to dataframe
+env_dist_sess <- dist(sEnvMatrix_sessile) # Calculate euclidean distances
+boxplot(sEnvMatrix_sessile) # Plot scale transformed values
+
+```
+
+Calculate motile env distances
+```{r}
+sEnvMatrix_motile = scale(EnvMatrix_motile, center = T, scale = T) # Scale transform
+sEnvMatrix_motile <- as.data.frame(sEnvMatrix_motile) # Convert to dataframe
+env_dist_mot <- dist(sEnvMatrix_motile) # Calculate euclidean distances
+boxplot(sEnvMatrix_motile) # Plot scale transformed values
+```
+
+# Reduce dimensions of environmental matrices for motile and sessile fractions
+Need to reduce dimensions of environmental matrix (114x114 to 78x78, subset using SH number)
+1) Call rownames (SH #s) that are 100 or 500 in fraction variable in metadata_ARMS
+```{r}
+# Motile fraction -Print the row names where 'fraction' equals 100 or 500
+rownames(metadata_ARMS)[which(metadata_ARMS$fraction %in% c(100, 500))]
+rownames(metadata_ARMS)[which(metadata_ARMS$fraction %in% c("sessile"))]
+
+# Define the vector of motile rows
+motile_rows <- c("SH21748", "SH21749", "SH21750", "SH21751", "SH21752", "SH21753", 
+                   "SH21754", "SH21755", "SH21756", "SH21757", "SH21758", "SH21759", 
+                   "SH21760", "SH21761", "SH21762", "SH21763", "SH21764", "SH21765", 
+                   "SH21772", "SH21773", "SH21774", "SH21776", "SH21775", "SH21777", 
+                   "SH21778", "SH21779", "SH21780", "SH21781", "SH21782", "SH21783", 
+                   "SH21784", "SH21785", "SH21786", "SH21787", "SH21789", "SH21790", 
+                   "SH21788", "SH21791", "SH21792", "SH21736", "SH21737", "SH21738", 
+                   "SH21739", "SH21740", "SH21741", "SH21742", "SH21743", "SH21744", 
+                   "SH21745", "SH21746", "SH21747", "SH21802", "SH21803", "SH21804", 
+                   "SH21805", "SH21806", "SH21807", "SH21808", "SH21809", "SH21810", 
+                   "SH21811", "SH21812", "SH21813", "SH21766", "SH21767", "SH21768", 
+                   "SH21769", "SH21770", "SH21771", "SH21793", "SH21794", "SH21795", 
+                   "SH21797", "SH21796", "SH21798", "SH21800", "SH21799", "SH21801")
+# Define sessile rows
+sessile_rows <- c("SH21706", "SH21707", "SH21708", "SH21709", "SH21710", "SH21711", 
+                   "SH21712", "SH21713", "SH21714", "SH21718", "SH21719", "SH21720", 
+                   "SH21721", "SH21722", "SH21723", "SH21724", "SH21725", "SH21726", 
+                   "SH21700", "SH21701", "SH21702", "SH21703", "SH21704", "SH21705", 
+                   "SH21730", "SH21731", "SH21732", "SH21733", "SH21734", "SH21735", 
+                   "SH21715", "SH21716", "SH21717", "SH21727", "SH21728", "SH21729")
+
+# Subset the EnMatrix_ind dataframe
+EnvMatrix_motile <- EnvMatrix_ind[rownames(EnvMatrix_ind) %in% motile_rows, ]
+EnvMatrix_sessile <- EnvMatrix_ind[rownames(EnvMatrix_ind) %in% sessile_rows, ]
+
+# View the subset
+head(EnvMatrix_motile)
+```
+# Export R objects of environmental distances 
+```{r}
+save(sEnvMatrix_motile, env_dist_mot, sEnvMatrix_sessile, env_dist_sess, sEnvMatrix_ind, env_dist_df, file = "./env_dist_input.Rdata")
+```
+
+
+
+Calculate motile env distances
+```{r}
+# Motile
+sEnvMatrix_motile = scale(EnvMatrix_motile, center = T, scale = T) # Scale transform
+sEnvMatrix_motile <- as.data.frame(sEnvMatrix_motile) # Convert to dataframe
+env_dist_mot <- dist(sEnvMatrix_motile) # Calculate euclidean distances
+boxplot(sEnvMatrix_motile) # Plot scale transformed values
+
+#Sessile
+sEnvMatrix_sessile = scale(EnvMatrix_motile, center = T, scale = T) # Scale transform
+sEnvMatrix_motile <- as.data.frame(sEnvMatrix_motile) # Convert to dataframe
+env_dist_mot <- dist(sEnvMatrix_motile) # Calculate euclidean distances
+boxplot(sEnvMatrix_motile) # Plot scale transformed values
+```
+
+===========================================
+Calculate Geographic Distances with MARMAP
+===========================================
+```{r}
+# Load marmap
+#library(marmap)
+```
+
+#Add depth to coord_sites dataframe for z dimension
+# Ensure both dataframes have rownames that match exactly
+rownames(coord_sites)
+rownames(EnvMatrix_reduced)
+
+# Add the depth column from EnvMatrix_reduced to coord_sites
+coord_sites$depth <- EnvMatrix_reduced[rownames(coord_sites), "depth"]
+
+# Check if the depth column was added correctly
+head(coord_sites)
+
+Calculate distances for 12 sites
+```{r}
+library(marmap)
+
+# Load bathymetric data (adjust lon/lat and resolution for your region)
+bathydata <- getNOAA.bathy(lon1 = -95, lon2 = -90, lat1 = 27, lat2 = 30, resolution = 0.2)
+
+# Create a transition matrix based on bathymetric data, constrained by minimum depth
+t <- trans.mat(bathydata, min.depth = -0.1)
+
+# Load your site coordinates 
+# Assuming 'coord_sites' contains the columns 'longitude' and 'latitude'
+xy_sites <- as.data.frame(coord_sites[,c("longitude", "latitude")])
+
+# Calculate the least-cost distance matrix in kilometers
+leastDist.km <- lc.dist(t, xy_sites, res = "dist")
+leastDist.km
+
+# Save the distance matrix for later use
+save(leastDist.km, file = 'leastDist.km.Rdata')
+
+# Convert the 'dist' object to a matrix
+leastDist.km_matrix <- as.matrix(leastDist.km)
+
+# Convert the matrix to a data frame
+leastDist.km_df <- as.data.frame(leastDist.km_matrix)
+
+# Write the data frame to a CSV file
+write.csv(leastDist.km_df, file = "./leastDist_km.csv", row.names = TRUE)
+
+# Calculate the minimum observed distance between sites
+min_dist <- min(leastDist.km)
+print(min_dist)
+
+
+```
+
+
+Calculate geographic distance for all, motile, and arms ARMS samples in order to have the proper dimensions for down-stream Mantel tests with Bray-Curtis distances
+```{r}
+# Load your site coordinates for individual ARMS 
+coord_sites_ind <- read.csv("./coord_sites_indv.csv",row.names=1, sep=",")
+
+# Subset the coord_sites dataframe for motile and sessile fractions
+coord_sites_mot <- coord_sites_ind[rownames(coord_sites_ind) %in% motile_rows, ]
+coord_sites_sess <- coord_sites_ind[rownames(coord_sites_ind) %in% sessile_rows, ]
+
+# Assuming 'coord_sites' contains the columns 'longitude' and 'latitude'
+xy_sites_ind <- as.data.frame(coord_sites_ind[,c("longitude", "latitude")]) #all
+xy_sites_mot <- as.data.frame(coord_sites_mot[,c("longitude", "latitude")]) #motile
+xy_sites_sess <- as.data.frame(coord_sites_sess[,c("longitude", "latitude")]) #sessile
+
+# Calculate the least-cost distance matrix in kilometers
+leastDist.km_ind <- lc.dist(t, xy_sites_ind, res = "dist") #all
+leastDist.km_mot <- lc.dist(t, xy_sites_mot, res = "dist") #motile
+leastDist.km_sess <- lc.dist(t, xy_sites_sess, res = "dist") #sessile
+
+# Save the distance matrix for later use
+save(leastDist.km_ind, file = 'leastDist.km_ind.Rdata') #all
+save(leastDist.km_mot, file = 'leastDist.km_mot.Rdata') #motile
+save(leastDist.km_sess, file = 'leastDist.km_sess.Rdata')#sessile
+
+# Convert the 'dist' object to a matrix
+leastDist.km_ind_matrix <- as.matrix(leastDist.km_ind) #all
+leastDist.km_mot_matrix <- as.matrix(leastDist.km_mot) #motile
+leastDist.km_sess_matrix <- as.matrix(leastDist.km_sess) #sessile
+
+# Convert the matrix to a data frame
+leastDist.km_ind_df <- as.data.frame(leastDist.km_ind_matrix) #all
+leastDist.km_mot_df <- as.data.frame(leastDist.km_mot_matrix) #motile
+leastDist.km_sess_df <- as.data.frame(leastDist.km_sess_matrix) #sessile
+
+# Write the data frame to a CSV file
+write.csv(leastDist.km_ind_df, file = "./leastDist_km_ind.csv", row.names = TRUE)
+write.csv(leastDist.km_mot_df, file = "./leastDist_km_motile.csv", row.names = TRUE)
+write.csv(leastDist.km_sess_df, file = "./leastDist_km_sessile.csv", row.names = TRUE)
+
+# Calculate the minimum observed distance between sites, will be zero because some sites extremely close to each other within a bank
+#min_dist <- min(leastDist.km)
+#print(min_dist)
+```
+
