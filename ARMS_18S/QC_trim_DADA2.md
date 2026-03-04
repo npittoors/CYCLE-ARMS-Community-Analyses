@@ -386,7 +386,7 @@ filtRs <- file.path(working_directory, "filtered", basename(fnRs))
 
 filtering_output <- filterAndTrim(
     fnFs, filtFs, fnRs, filtRs,
-    truncLen = c(YOUR_FWD_TRUNCLEN, YOUR_REV_TRUNCLEN),  # <-- edit this
+    truncLen = c(220,180),
     maxEE = c(2, 3),
     compress = TRUE,
     multithread = TRUE,
