@@ -19,7 +19,7 @@ The study integrates six complementary biodiversity datasets to test whether env
 |---|---|---|
 | COI metabarcoding (ARMS) | DNA metabarcoding, Folmer/Leray primers | Community composition, beta diversity, dispersal vs. filtering |
 | 18S metabarcoding (ARMS) | DNA metabarcoding, V4_18SNext primers | Community composition, beta diversity, dispersal vs. filtering |
-| 18S eDNA (water column) | DNA metabarcoding of filtered seawater, V4_18SNext primers | Water column community composition, environmental filtering |
+| 18S eDNA (water column) | DNA metabarcoding of filtered seawater, V4_18SNext primers | Surrounding water column community composition, environmental filtering |
 | CoralNet image annotations | Point-count annotation of ARMS settlement plates | Sessile macrofaunal cover and recruitment |
 | 2mm motile macrofauna | Morphological + molecular identification of sieved fauna | Motile invertebrate community structure |
 | Environmental / seascape model | Satellite remote sensing + HOBO logger data | Environmental distance matrices for Mantel/MRM analyses |
